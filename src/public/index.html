@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>我的菜谱库</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <span class="brand-mark">厨</span>
+          <div class="brand-text">
+            <h1>我的菜谱库</h1>
+            <p id="brandSub">正在读取本地数据…</p>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <button id="btnLogin" class="btn btn-ghost" type="button">登录下厨房</button>
+          <button id="btnImages" class="btn btn-ghost" type="button">补抓图片</button>
+          <button id="btnScrape" class="btn btn-primary" type="button">抓取菜谱</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- 待做清单浮动栏 -->
+    <section id="planBar" class="plan-bar" hidden>
+      <div class="plan-bar-inner">
+        <span class="plan-bar-text">
+          <span class="plan-bar-ico">⏳</span>
+          <b id="planCount">0</b> 道菜已加入待做清单
+        </span>
+        <div class="plan-bar-actions">
+          <button id="btnPlanClear" class="btn btn-ghost" type="button">清空清单</button>
+          <button id="btnCookStart" class="btn btn-primary btn-cook" type="button">🔥 开干</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 工作模式 -->
+    <section id="cookMode" class="cook-mode" hidden>
+      <header class="cook-head">
+        <div class="cook-head-left">
+          <button id="cookBack" class="btn btn-ghost" type="button">← 返回首页</button>
+        </div>
+        <h2 class="cook-title">开干模式</h2>
+        <div class="cook-head-right">
+          <span id="cookSummary" class="cook-summary-mini">—</span>
+          <button id="cookPlanManage" class="btn btn-ghost" type="button">📋 清单 (<span id="cookPlanCount">0</span>)</button>
+        </div>
+      </header>
+
+      <section class="cook-summary-card">
+        <div class="cook-summary-head">
+          <span class="cook-ico">🥘</span>
+          <strong>全部食材汇总</strong>
+          <span class="cook-summary-meta">主料 / 辅料（合并去重，份数 = 用到的菜谱数）</span>
+        </div>
+        <div class="cook-summary-body">
+          <div class="cook-ing-block">
+            <div class="cook-ing-title"><span class="ing-ico">🍖</span>主料</div>
+            <div id="cookMainList" class="cook-ing-list"></div>
+          </div>
+          <div class="cook-ing-block">
+            <div class="cook-ing-title"><span class="ing-ico">🧂</span>辅料</div>
+            <div id="cookSeasonList" class="cook-ing-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="cook-timeline-card">
+        <div class="cook-summary-head">
+          <span class="cook-ico">⏱</span>
+          <strong>时间线</strong>
+          <span class="cook-summary-meta" id="cookTimelineMeta">—</span>
+        </div>
+        <div class="cook-legend">
+          <span class="cook-legend-item"><span class="cook-legend-swatch swatch-active"></span>动手步骤（占厨师）</span>
+          <span class="cook-legend-item"><span class="cook-legend-swatch swatch-passive"></span>等待步骤（锅在炖）</span>
+        </div>
+        <div id="cookTimeline" class="cook-timeline"></div>
+      </section>
+
+      <section class="cook-order-card">
+        <div class="cook-summary-head">
+          <span class="cook-ico">🔀</span>
+          <strong>开工顺序</strong>
+          <span class="cook-summary-meta" id="cookOrderMeta">—</span>
+        </div>
+        <div id="cookOrderStrip" class="cook-order-strip"></div>
+      </section>
+
+      <section class="cook-recipes-card">
+        <div class="cook-summary-head">
+          <span class="cook-ico">📖</span>
+          <strong>全部步骤详情</strong>
+          <span class="cook-summary-meta">点击上方时间线块可在下方定位</span>
+        </div>
+        <div id="cookRecipes" class="cook-recipes"></div>
+      </section>
+    </section>
+
+    <!-- 清单管理弹层 -->
+    <div id="planModal" class="modal" hidden>
+      <div class="modal-card">
+        <h2>待做清单</h2>
+        <p class="modal-hint">点击「开干」后，多道菜会按时间线统筹调度（炖煮等待时穿插其他菜的动手步骤）。可用 ↑↓ 调整顺序、移除菜品，工作模式下改动会实时刷新。</p>
+        <ul id="planList" class="plan-list"></ul>
+        <div class="modal-actions">
+          <button id="planCancel" class="btn btn-ghost" type="button">关闭</button>
+          <button id="planClearAll" class="btn btn-danger" type="button">清空全部</button>
+          <button id="planStart" class="btn btn-primary" type="button">🔥 开干</button>
+        </div>
+      </div>
+    </div>
+
+    <main class="page">
+      <section class="toolbar">
+        <div class="search-field">
+          <span class="search-icon">🔍</span>
+          <input
+            id="searchInput"
+            type="search"
+            placeholder="搜索菜名、用料、步骤…（支持空格分隔多个关键词）"
+            autocomplete="off"
+          />
+          <button id="searchClear" class="search-clear" type="button" hidden>清空</button>
+        </div>
+
+        <div class="controls">
+          <label class="control">
+            <span>排序</span>
+            <select id="sortSelect">
+              <option value="updated" selected>更新时间</option>
+              <option value="collected">抓取时间</option>
+              <option value="title">菜名</option>
+              <option value="ingredients">用料数量</option>
+              <option value="steps">步骤数量</option>
+              <option value="id">菜谱 ID</option>
+              <option value="random">随机</option>
+            </select>
+          </label>
+
+          <button id="orderToggle" class="btn btn-ghost btn-order" type="button" title="切换升降序">
+            <span id="orderLabel">降序</span>
+          </button>
+
+          <label class="control">
+            <span>每页</span>
+            <select id="pageSizeSelect">
+              <option value="12">12</option>
+              <option value="24" selected>24</option>
+              <option value="48">48</option>
+              <option value="96">96</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="tags-section">
+        <div class="tags-head">
+          <h2>标签</h2>
+          <div class="tags-head-right">
+            <button id="tagToggle" class="link-btn" type="button" hidden>展开 ▾</button>
+            <button id="clearTag" class="link-btn" type="button" hidden>清除筛选</button>
+          </div>
+        </div>
+        <div id="tagList" class="tag-list" data-expanded="false"></div>
+      </section>
+
+      <section class="results-head">
+        <div id="resultSummary" class="result-summary">—</div>
+        <div id="activeFilters" class="active-filters"></div>
+      </section>
+
+      <section id="grid" class="grid"></section>
+      <section id="emptyState" class="empty-state" hidden>
+        <div class="empty-icon">🍳</div>
+        <h3>还没有菜谱</h3>
+        <p>点击右上角「抓取菜谱」，粘贴你想入库的菜谱 ID 或 URL，每行一个。首次使用会先打开浏览器等你登录下厨房。</p>
+      </section>
+
+      <nav id="pagination" class="pagination" hidden></nav>
+    </main>
+
+    <!-- 菜谱详情 -->
+    <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+    <aside id="drawer" class="drawer" hidden>
+      <div class="drawer-head">
+        <button id="drawerClose" class="btn btn-ghost" type="button">关闭</button>
+        <div class="drawer-head-right">
+          <button id="drawerPlan" class="btn btn-ghost btn-plan-add" type="button" title="加入待做清单，凑齐之后一起开干">🔥 待做</button>
+          <button id="drawerTouch" class="btn btn-ghost" type="button" title="把这道菜谱的更新时间刷新到当前时间，置顶显示">✳︎ 刷新更新时间</button>
+          <button id="drawerDelete" class="btn btn-ghost btn-danger" type="button">从库中删除</button>
+          <a id="drawerSource" class="btn btn-ghost" href="#" target="_blank" rel="noreferrer">原网页 ↗</a>
+        </div>
+      </div>
+      <div id="drawerBody" class="drawer-body"></div>
+    </aside>
+
+    <!-- 任务面板 -->
+    <section id="jobPanel" class="job-panel" hidden>
+      <header class="job-head">
+        <div class="job-title">
+          <span id="jobStatusDot" class="dot"></span>
+          <strong id="jobTitle">任务</strong>
+          <span id="jobProgress" class="job-progress"></span>
+        </div>
+        <div class="job-actions">
+          <button id="jobCancel" class="btn btn-ghost" type="button">停止</button>
+          <button id="jobToggle" class="btn btn-ghost" type="button">收起</button>
+        </div>
+      </header>
+      <pre id="jobLog" class="job-log"></pre>
+    </section>
+
+    <!-- 抓取设置 -->
+    <div id="scrapeModal" class="modal" hidden>
+      <div class="modal-card">
+        <h2>抓取菜谱</h2>
+        <p class="modal-hint">
+          在下方输入下厨房菜谱的 ID 或完整 URL，<strong>每行一个</strong>。例如 <code>123456</code> 或 <code>https://www.xiachufang.com/recipe/123456/</code>。
+        </p>
+        <p class="modal-hint">
+          抓取需要登录态，遇到滑块验证时会自动打开浏览器等你拖一下。
+        </p>
+
+        <p id="sessionHint" class="modal-hint session-hint">正在检查登录状态…</p>
+
+        <label class="field">
+          <span>菜谱 ID / URL（每行一个）</span>
+          <textarea id="optIds" rows="6" placeholder="例如：&#10;106125193&#10;https://www.xiachufang.com/recipe/107691482/"></textarea>
+        </label>
+
+        <div class="field-row">
+          <label class="field">
+            <span>请求间隔（毫秒）</span>
+            <input id="optDelay" type="number" min="200" step="100" value="1100" />
+          </label>
+          <label class="field">
+            <span>图片最长边（px，0=原图）</span>
+            <input id="optImageSize" type="number" min="0" step="100" value="1000" />
+          </label>
+        </div>
+
+        <div class="check-row">
+          <label class="check"><input id="optImages" type="checkbox" checked /><span>把封面图与步骤图下载到本地</span></label>
+          <label class="check"><input id="optForce" type="checkbox" /><span>强制更新已存在的菜谱</span></label>
+          <label class="check"><input id="optDebug" type="checkbox" /><span>解析异常时保存调试 HTML</span></label>
+        </div>
+
+        <div class="modal-actions">
+          <button id="scrapeCancel" class="btn btn-ghost" type="button">取消</button>
+          <button id="scrapeConfirm" class="btn btn-primary" type="button">开始抓取</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
