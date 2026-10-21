@@ -16,8 +16,7 @@ struct ScrapeOptions {
     var maxBatch: Int = 20
 }
 
-/// 手机上的抓取流程，流程与网页端 src/scraper/scrape.js 一致：
-/// 探测会话 → 必要时请人工登录/过滑块 → 逐个抓页面 → 解析 → 图片本地化 → 写入本地库。
+/// 手机上的抓取流程：探测会话 → 必要时请人工登录/过滑块 → 逐个抓页面 → 解析 → 图片本地化 → 写入本地库。
 @MainActor
 final class ScrapeService: ObservableObject {
     let store: RecipeStore
@@ -26,6 +25,8 @@ final class ScrapeService: ObservableObject {
     @Published var logs: [String] = []
     @Published var current: Int = 0
     @Published var total: Int = 0
+    /// 当前正在处理第几道菜（给进度条用）
+    @Published var currentTitle: String?
     @Published var sessionReady: Bool = false
     @Published var sessionMessage: String = "未检查登录态"
 
@@ -79,6 +80,8 @@ final class ScrapeService: ObservableObject {
     }
 
     func cancel() {
+        // 正在等人工登录时，光 cancel Task 不会唤醒 CheckedContinuation
+        if case .waitingLogin = status { resumeLogin(with: []) }
         task?.cancel()
         task = nil
         status = .failed(message: "已取消")
@@ -87,6 +90,17 @@ final class ScrapeService: ObservableObject {
 
     /// LoginView 完成登录后调用
     func finishLogin(cookies: [SiteCookie]) {
+        resumeLogin(with: cookies)
+    }
+
+    /// LoginView 点了「取消」时必须调用，否则等登录的 Task 永远挂起，
+    /// 状态卡死在 .waitingLogin，之后再也 start 不了（历史 bug）。
+    /// 这里回一份空 Cookie，`run()` 收到空数组即认定用户放弃。
+    func cancelLogin() {
+        resumeLogin(with: [])
+    }
+
+    private func resumeLogin(with cookies: [SiteCookie]) {
         let continuation = loginContinuation
         loginContinuation = nil
         continuation?.resume(returning: cookies)
@@ -111,10 +125,20 @@ final class ScrapeService: ObservableObject {
         logs.append(message)
     }
 
+    /// App 退到后台：iOS 会挂起进程、网络请求停住。这里不做后台任务，
+    /// 只在日志里说明现状，避免用户误以为卡死。
+    func noteBackgrounded() {
+        guard isRunning else { return }
+        let text = "已切到后台，抓取暂停；回到前台会自动继续。"
+        guard logs.last != text else { return }
+        log(text)
+    }
+
     private func run(ids: [String], options: ScrapeOptions) async {
         status = .running
         current = 0
         total = ids.count
+        currentTitle = nil
         logs = []
 
         let client = SiteClient(cookies: SessionStore.load()?.cookies ?? [])
@@ -141,6 +165,12 @@ final class ScrapeService: ObservableObject {
             }
 
             let cookies = await waitForLogin()
+            // 用户点了「取消」→ 空 Cookie，直接中止，不要再回到 probe 循环死等
+            guard !cookies.isEmpty else {
+                status = .failed(message: "已取消登录，抓取中止")
+                log("已取消登录")
+                return
+            }
             client.setCookies(cookies)
             SessionStore.save(cookies)
         }
@@ -169,6 +199,7 @@ final class ScrapeService: ObservableObject {
         for (index, id) in ids.enumerated() {
             if Task.isCancelled { break }
             current = index + 1
+            currentTitle = nil
             let url = String(format: SessionStore.recipeURLTemplate, id)
 
             if !options.forceUpdate, store.hasRecipe(id: Int(id) ?? 0) {
@@ -187,6 +218,7 @@ final class ScrapeService: ObservableObject {
                 guard !recipe.title.isEmpty else {
                     throw ScrapeError(code: .parseFailed, message: "未能解析出菜谱名称")
                 }
+                currentTitle = recipe.title
 
                 if options.withImages {
                     let cover = await ImageDownloader.download(
@@ -236,6 +268,7 @@ final class ScrapeService: ObservableObject {
             }
         }
 
+        currentTitle = nil
         let summary = "新抓 \(added) 条，更新 \(updated) 条，跳过 \(skipped) 条，失败 \(failed) 条，图片 \(imageCount) 张"
         log(summary)
         status = .finished(summary: summary)
@@ -248,7 +281,7 @@ final class ScrapeService: ObservableObject {
         }
     }
 
-    /// 与网页端 normalizeRecipe 同规则
+    /// RawRecipe → Recipe 的字段规整（过滤空项、补齐 index，保持既有规则不变）
     private func normalize(raw: RawRecipe, id: Int, url: String) -> Recipe {
         let now = ISOStamp.string(from: Date())
         let ingredients = (raw.ingredients ?? [])

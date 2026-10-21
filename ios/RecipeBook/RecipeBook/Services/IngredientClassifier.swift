@@ -1,6 +1,6 @@
 import Foundation
 
-/// 主料 / 辅料（调料）白名单分类，与 src/db.js 的 SEASONING_KEYWORDS + classifyIngredients 一致。
+/// 主料 / 辅料（调料）白名单分类，与 旧数据层 的 SEASONING_KEYWORDS + classifyIngredients 一致。
 /// 抓新菜谱时服务端不做分类，落库前在手机上按同一份白名单划分，保证两边端口味一致。
 enum IngredientClassifier {
     static let seasoningKeywords: [String] = [

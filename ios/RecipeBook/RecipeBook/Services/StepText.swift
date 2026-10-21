@@ -1,6 +1,6 @@
 import Foundation
 
-/// 步骤文本里的时间片段高亮，与网页端 app.js 的 highlightStepTime 同一套匹配：
+/// 步骤文本里的时间片段切片，用于富文本高亮：
 /// 先找 "30 分钟" 这类数字时间，再找 "一小时"、"两刻钟" 这类中文时间。
 enum StepText {
     private static let digitTime = try! NSRegularExpression(

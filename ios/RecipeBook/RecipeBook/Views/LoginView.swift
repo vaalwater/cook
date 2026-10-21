@@ -3,14 +3,18 @@ import WebKit
 
 /// 登录下厨房：只有一个不可控制自动化行为的 WKWebView，让用户在里面扫码 / 输账号 / 拖滑块，
 /// 完成后从这枚 WebView 的 Cookie 容器里取回 xiachufang.com 的 Cookie 交给抓取流程复用。
-/// 等价于网页端 `npm run login`（src/scraper/login.js）里用 Playwright 打开浏览器那一步。
+/// 登录这一步无法自动化，所以整个方案是「人工过一次验证 → 之后纯 HTTP 抓取」。
 struct LoginView: View {
     let startURL: URL
     let onFinish: ([SiteCookie]) -> Void
+    /// 取消时必须回调，用来唤醒 ScrapeService 里等待登录的 continuation
+    let onCancel: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var isLoading = true
     @State private var pageTitle = ""
+    /// 用手势下滑关掉 sheet 时拿不到「取消」按钮的回调，靠这里兜底
+    @State private var finished = false
 
     var body: some View {
         NavigationStack {
@@ -31,7 +35,11 @@ struct LoginView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                    Button("取消") {
+                        // 必须先通知抓取流程，否则它会一直挂起在等待登录那一步
+                        onCancel()
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成登录") { collectCookies() }
@@ -46,6 +54,7 @@ struct LoginView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.bar)
             }
+            .onDisappear { if !finished { onCancel() } }
         }
     }
 
@@ -57,6 +66,7 @@ struct LoginView: View {
                 return
             }
             SessionStore.save(cookies)
+            finished = true
             onFinish(cookies)
             dismiss()
         }

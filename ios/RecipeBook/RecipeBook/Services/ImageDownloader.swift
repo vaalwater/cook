@@ -1,7 +1,7 @@
 import UIKit
 
 /**
- * 图片本地化：与网页端 src/scraper/images.js 同规则。
+ * 图片本地化：（沿用旧实现 images.js 的规则）。
  * 下厨房图床有防盗链（必须带 Referer），图片地址形如 `<hash>_3000w_4000h.jpg`，
  * size > 0 时向图床要更小的一档，避免把 3000px 原图存到手机里。
  */

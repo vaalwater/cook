@@ -31,7 +31,7 @@ struct AggregatedIngredient: Identifiable, Hashable {
 }
 
 /// 多菜谱统筹调度：单厨师 + 多锅并行，事件驱动模拟。
-/// 直接移植网页端 app.js 的 scheduleRecipes，保证两端排出来的时间线一致。
+/// 多菜统筹调度算法（沿用既定口径，不要随意改动推算规则）。
 enum CookScheduler {
     private static let passivePattern = try! NSRegularExpression(
         pattern: #"(炖|焖|煮|蒸|烤|煲|卤|焙|烩|熬|煨|沸)"#, options: []

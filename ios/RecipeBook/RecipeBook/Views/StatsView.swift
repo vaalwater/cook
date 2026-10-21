@@ -69,7 +69,7 @@ struct StatsView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    Text("备份存到「文件」App 或隔空投送出来后，在电脑上跑 npm run import:ios -- 备份.json 就能把手机上抓的新菜谱、删掉的菜谱、待做清单写回本地库。")
+                    Text("备份是完整快照（菜谱 + 待做清单 + 删除记录）。用「文件」App 或隔空投送存一份到别处，重装 / 换机后在这里导入即可恢复。注意备份只含文字与清单，不含图片。")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 } header: {
@@ -86,7 +86,7 @@ struct StatsView: View {
                         Text("新菜谱在「菜谱 → 右上角抓取」里粘贴下厨房链接抓取；App 自己抓页面、解析、存图，不经过服务器。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text("已有的菜谱来自导出时的种子数据，之后电脑端 npm run export:ios 可以重新导出；App 里抓的新菜谱通过上面的备份导出 + npm run import:ios 回写电脑库。")
+                        Text("出厂自带的菜谱来自 App 内置的种子数据；之后你在 App 里抓取的新菜谱会直接写进沙盒库，请用上面的备份功能定期留一份，避免重装时丢失。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

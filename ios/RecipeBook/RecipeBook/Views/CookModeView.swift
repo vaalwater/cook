@@ -252,7 +252,7 @@ struct CookModeView: View {
         }
     }
 
-    /// 完成一步 ← 网页端 completeOrderStep：自动推进到下一个未完成的工序并居中
+    /// 完成一步 ← 沿用旧实现 completeOrderStep：自动推进到下一个未完成的工序并居中
     private func advanceIfNeeded(proxy: ScrollViewProxy) {
         guard let index = flatSteps.firstIndex(where: { !completed.contains($0.id) }) else { return }
         let target = flatSteps[index]
@@ -338,7 +338,7 @@ struct CookModeView: View {
         }
     }
 
-    /// 与网页端 updateOrderCardScales 同思路：离居中的卡片越远越小
+    /// 与updateOrderCardScales 同思路：离居中的卡片越远越小
     private func chipScale(index: Int) -> CGFloat {
         guard let focused = flatSteps.firstIndex(where: { $0.id == focusedStepID }) else { return 0.92 }
         let distance = abs(index - focused)
@@ -428,7 +428,7 @@ struct CookModeView: View {
     }
 }
 
-/// 开干页里直接管理待做清单（对应网页端 cookPlanManage → planModal）
+/// 开干页里直接管理待做清单（沿用旧实现 cookPlanManage → planModal 的行为）
 struct CookPlanManagerView: View {
     @EnvironmentObject private var store: RecipeStore
     @Environment(\.dismiss) private var dismiss

@@ -1,6 +1,6 @@
 import Foundation
 
-/// 与网页端 db.js 完全一致的检索规则：
+/// 检索索引规则（纯子串匹配，多词之间是 AND）：
 /// 索引归一化（小写 + 去空白 + 去标点），查询按标点/空格切词，多词之间是 AND。
 enum TextIndex {
     private static let punctuation: Set<Character> = Set(

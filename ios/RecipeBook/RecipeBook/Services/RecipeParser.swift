@@ -1,7 +1,7 @@
 import Foundation
 import WebKit
 
-/// 解析器输出的原始结构（对应 src/scraper/parse.js 里 extractRecipeInPage 的返回值）
+/// 解析器输出的原始结构（对应 Resources/parse.js 里 extractRecipeInPage 的返回值）
 struct RawRecipeStep: Decodable {
     var index: Int?
     var text: String?
@@ -32,8 +32,8 @@ struct RawRecipe: Decodable {
 }
 
 /**
- * HTML → 数据 的解析器：直接跑 `src/scraper/parse.js`（工程里以 bundle resource 引入，
- * 与网页端共用同一份解析逻辑），执行环境是一个不可见、且**屏蔽了所有外部资源加载**的 WKWebView，
+ * HTML → 数据 的解析器：跑 App 内置的 `Resources/parse.js`，
+ * 执行环境是一个不可见、且**屏蔽了所有外部资源加载**的 WKWebView，
  * 这样解析时不联网，不会触发站点风控。
  */
 @MainActor
@@ -44,7 +44,7 @@ final class RecipeParser {
 
     static func create() async throws -> RecipeParser {
         guard let url = Bundle.main.url(forResource: "parse", withExtension: "js") else {
-            throw ScrapeError(code: .parseFailed, message: "App 里缺少解析脚本，检查构建资源是否包含 src/scraper/parse.js")
+            throw ScrapeError(code: .parseFailed, message: "App 里缺少解析脚本，检查构建资源里有没有 Resources/parse.js")
         }
         let script = try String(contentsOf: url, encoding: .utf8)
         return RecipeParser(script: script)
@@ -63,7 +63,7 @@ final class RecipeParser {
         self.webView = view
     }
 
-    /// 屏蔽一切外部资源加载（对应网页端 dom.js 里 `page.route('**/*')` 的拦截）
+    /// 屏蔽一切外部资源加载，避免解析过程中联网触发风控
     private static func makeBlockRemoteRules() -> WKContentRuleList? {
         let json = """
         [{"trigger":{"url-filter":".*","resource-type":["image","media","script","style","font","fetch","xmlhttprequest","websocket","popup"]},"action":{"type":"block"}}]
@@ -85,7 +85,7 @@ final class RecipeParser {
         webView.stopLoading()
     }
 
-    /// 同 dom.js HtmlParser.run：注入 <base href>，渲染后调用 extractRecipeInPage
+    /// 注入 <base href> 后渲染页面，再调用解析函数 extractRecipeInPage
     func extractRecipe(html: String, pageUrl: String) async throws -> RawRecipe {
         let escaped = pageUrl.replacingOccurrences(of: "\"", with: "&quot;")
         let baseTag = "<base href=\"\(escaped)\">"

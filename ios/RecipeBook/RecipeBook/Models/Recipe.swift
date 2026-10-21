@@ -78,7 +78,7 @@ struct Recipe: Codable, Hashable, Identifiable {
     var collectedAt: String
     var updatedAt: String
 
-    /// 归一化后的检索索引（与网页端 search_text 同规则），不写入 JSON
+    /// 归一化后的检索索引（与search_text 同规则），不写入 JSON
     var searchIndex: String = ""
 
     private enum CodingKeys: String, CodingKey {

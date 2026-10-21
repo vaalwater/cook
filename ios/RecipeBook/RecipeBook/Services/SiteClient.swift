@@ -1,7 +1,7 @@
 import Foundation
 
 /**
- * 站内 HTTP 客户端：与网页端 src/scraper/session.js 的 SiteClient 同构。
+ * 站内 HTTP 客户端：手动接管重定向 + Cookie Jar + 风控识别。
  *
  * 要点：
  *   - 手动接管重定向：站点会在每一跳下发风控 Cookie，必须原样带回去
@@ -31,7 +31,7 @@ struct FetchResult {
 }
 
 final class SiteClient: @unchecked Sendable {
-    /// 与 src/scraper/browser.js 里的 USER_AGENT 一致（桌面 UA，站点对自动化浏览器会下发滑块）
+    /// 桌面 UA：站点对自动化浏览器会下发滑块验证码
     static let userAgent =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 

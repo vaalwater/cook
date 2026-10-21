@@ -62,7 +62,7 @@
 		3A0000000000000000000017 /* StepText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepText.swift; sourceTree = "<group>"; };
 		3A0000000000000000000018 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		3A0000000000000000000019 /* ScrapeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeView.swift; sourceTree = "<group>"; };
-		3A000000000000000000001F /* parse.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = parse.js; path = ../../src/scraper/parse.js; sourceTree = "<group>"; };
+		3A000000000000000000001F /* parse.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = RecipeBook/Resources/parse.js; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */

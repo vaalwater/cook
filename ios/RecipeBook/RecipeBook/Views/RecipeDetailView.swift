@@ -209,7 +209,7 @@ struct RecipeDetailView: View {
         }
     }
 
-    /// 步骤文本里的时间片段高亮（对应网页端 highlightStepTime）
+    /// 步骤文本里的时间片段高亮（沿用旧实现 highlightStepTime 的行为）
     private func highlightedText(_ text: String) -> Text {
         StepText.segments(text).reduce(Text("")) { result, segment in
             guard segment.isTime else { return result + Text(segment.value) }

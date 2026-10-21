@@ -1,10 +1,14 @@
-node_modules/
-data/
-*.log
-.DS_Store
+# Xcode
+build/
+*.pbxuser
+*.perspectivev3
+xcuserdata/
 
-# iOS 种子图片：约 162MB，由 npm run export:ios 从本地库重新生成，不入库
+# App 内置种子图片：约 162MB / 2650 张，体积太大不入库
+# （Resources/Seed/recipes.json 与 manifest.json 已入库，缺图时 App 会按需从原站拉取）
 ios/RecipeBook/RecipeBook/Resources/Seed/images/
 
-# Xcode 用户态文件（断点、窗口状态等，随机器变化）
-xcuserdata/
+# 本地遗留数据目录（旧版电脑端的 SQLite 主库，已从仓库移除，仅留在本机作快照）
+data/
+
+.DS_Store

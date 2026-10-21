@@ -6,6 +6,7 @@ struct ScrapeView: View {
     @EnvironmentObject private var scrape: ScrapeService
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var input = ""
     @State private var withImages = true
@@ -46,10 +47,16 @@ struct ScrapeView: View {
             .sheet(isPresented: $showLogin) {
                 LoginView(startURL: Self.probeURL(first: ids.first)) { cookies in
                     scrape.finishLogin(cookies: cookies)
+                } onCancel: {
+                    scrape.cancelLogin()
                 }
             }
             .onChange(of: scrape.status) { _, status in
                 if case .waitingLogin = status { showLogin = true }
+            }
+            // App 进入后台会被系统挂起，网络请求随之停住；回前台才继续。提前告诉用户，别以为是卡死。
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background, scrape.isRunning { scrape.noteBackgrounded() }
             }
             .alert("确定清除登录态？", isPresented: $showClearSession) {
                 Button("清除", role: .destructive) {
@@ -153,11 +160,34 @@ struct ScrapeView: View {
     private var progressContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             if scrape.total > 0 {
-                ProgressView(value: Double(scrape.current), total: Double(max(1, scrape.total)))
-                Text("第 \(scrape.current) / \(scrape.total) 个")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                let value = Double(scrape.current)
+                let total = Double(max(1, scrape.total))
+                ProgressView(value: value, total: total)
+                HStack {
+                    Text("第 \(scrape.current) / \(scrape.total) 个")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(Int((value / total) * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                if let title = scrape.currentTitle, !title.isEmpty {
+                    Text("正在处理：\(title)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
+
+            // 系统不会为前台抓取保留后台运行时间，切走就停，得先说明白
+            if scrape.isRunning {
+                Label("切到后台 / 锁屏会暂停抓取，回到本页会自动继续。数量多时请保持 App 在前台。",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+
             ForEach(Array(scrape.logs.enumerated()), id: \.offset) { _, line in
                 Text(line)
                     .font(.system(.caption2, design: .monospaced))

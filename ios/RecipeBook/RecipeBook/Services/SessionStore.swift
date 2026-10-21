@@ -3,7 +3,7 @@ import Foundation
 /**
  * 下厨房登录态（Cookie）持久化。
  *
- * 与网页端 src/scraper/session.js 同一套规则：
+ * Cookie 的持久化与过滤规则：
  *   - 只保留 xiachufang.com 域名下的 cookie
  *   - wait_xcf_clearance 是「待人机校验」标记，必须忽略，否则会一直被重定向到滑块验证页
  *   - session / _T_SESSION / login 里有值才算登录成功

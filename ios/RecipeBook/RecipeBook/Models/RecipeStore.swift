@@ -45,7 +45,7 @@ struct RecipeQuery {
 }
 
 /// 备份文件格式：App 里抓的菜谱、删掉的菜谱、待做清单都在手机沙盒里，
-/// 导出一份 JSON 就能换机 / 重装时恢复，也能用 `npm run import:ios -- 备份.json` 回写电脑库。
+/// 导出一份 JSON 就能换机 / 重装时恢复。恢复时按 updatedAt 取新者，删除记录直接生效。
 struct RecipeBackup: Codable {
     var exportedAt: String
     var recipes: [Recipe]
@@ -272,17 +272,24 @@ final class RecipeStore: ObservableObject {
         return true
     }
 
-    /// 抓取写入：新菜谱插到最前，已存在的就地更新（等价于网页端的 upsertRecipe）
+    /// 抓取写入：新菜谱插到最前，已存在的就地更新。
+    ///
+    /// **必须把 id 从 deletedIds 里摘掉**：以前删过的菜谱如果被重新抓回来，
+    /// 删除标记还在的话，本次可见、下次冷启动 `load()` 又会被过滤掉（"重抓了却还是消失"）。
     @discardableResult
     func upsert(_ recipe: Recipe) -> (added: Bool, isNew: Bool) {
+        let wasDeleted = deletedIds.remove(recipe.id) != nil
+
         if let index = recipes.firstIndex(where: { $0.id == recipe.id }) {
             recipes[index] = recipe
             persistRecipes()
+            if wasDeleted { saveState() }
             return (added: true, isNew: false)
         }
         recipes.insert(recipe, at: 0)
         randomOrder.insert(recipe.id, at: 0)
         persistRecipes()
+        if wasDeleted { saveState() }
         return (added: true, isNew: true)
     }
 
