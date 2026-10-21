@@ -10,6 +10,8 @@
     "fetch-images": "node --no-warnings src/scraper/fetch-images.js",
     "start": "node --no-warnings src/server.js",
     "dev": "node --no-warnings --watch src/server.js",
+    "export:ios": "node --no-warnings src/scripts/export-ios.js",
+    "import:ios": "node --no-warnings src/scripts/import-ios.js",
     "postinstall": "playwright install chromium"
   },
   "engines": {

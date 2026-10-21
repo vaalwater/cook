@@ -2,3 +2,9 @@ node_modules/
 data/
 *.log
 .DS_Store
+
+# iOS 种子图片：约 162MB，由 npm run export:ios 从本地库重新生成，不入库
+ios/RecipeBook/RecipeBook/Resources/Seed/images/
+
+# Xcode 用户态文件（断点、窗口状态等，随机器变化）
+xcuserdata/

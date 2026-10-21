@@ -384,6 +384,6 @@ db.db
 app.listen(PORT, () => {
   const stats = db.getStats();
   process.stdout.write(
-    `\n  菜谱库已启动\n  地址：http://localhost:${PORT}\n  本地菜谱数量：${stats.total}\n\n`,
+    `\n  菜谱小本本已启动\n  地址：http://localhost:${PORT}\n  本地菜谱数量：${stats.total}\n\n`,
   );
 });
