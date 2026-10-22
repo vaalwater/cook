@@ -141,6 +141,18 @@ final class CookTimerManager: ObservableObject {
         stopTickerIfIdle()
     }
 
+    /// 某道菜（或几道菜）不再做了：它的步骤倒计时全部清掉，到点通知一并撤销
+    func delete(recipeIds: [Int]) {
+        let ids = Set(recipeIds)
+        guard !ids.isEmpty else { return }
+        let before = timers.count
+        timers.filter { $0.recipeId.map(ids.contains) ?? false }.forEach { cancelNotification(id: $0.id) }
+        timers.removeAll { $0.recipeId.map(ids.contains) ?? false }
+        guard timers.count != before else { return }
+        save()
+        stopTickerIfIdle()
+    }
+
     /// 开工顺序里点「完成」：把这一条步骤对应的倒计时一起删掉
     func delete(recipeId: Int, stepIndex: Int) {
         let before = timers.count

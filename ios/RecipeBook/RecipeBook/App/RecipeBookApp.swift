@@ -5,12 +5,19 @@ struct RecipeBookApp: App {
     @StateObject private var store: RecipeStore
     @StateObject private var scrape: ScrapeService
     /// 全局倒计时（开干模式与菜谱首页共用同一个入口）
-    @StateObject private var timers = CookTimerManager()
+    @StateObject private var timers: CookTimerManager
 
     init() {
         let store = RecipeStore()
+        let scrape = ScrapeService(store: store)
+        let timers = CookTimerManager()
         self._store = StateObject(wrappedValue: store)
-        self._scrape = StateObject(wrappedValue: ScrapeService(store: store))
+        self._scrape = StateObject(wrappedValue: scrape)
+        self._timers = StateObject(wrappedValue: timers)
+        // 菜谱从待做清单里移走 / 从库中删除时，它的步骤倒计时一起清掉（连带撤销已排的到点通知）
+        store.onRecipesRemovedFromPlan = { ids in
+            DispatchQueue.main.async { timers.delete(recipeIds: ids) }
+        }
     }
 
     var body: some Scene {

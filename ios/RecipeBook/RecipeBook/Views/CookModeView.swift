@@ -102,7 +102,11 @@ struct CookModeView: View {
                         Button {
                             showTimerCenter = true
                         } label: {
-                            Label(timers.timers.isEmpty ? "计时" : "\(timers.timers.count)", systemImage: "timer")
+                            TimerToolbarLabel(
+                                count: timers.timers.count,
+                                hasFired: timers.timers.contains { $0.fired },
+                                emptyTitle: "计时"
+                            )
                         }
                     }
                     ToolbarItem(placement: .primaryAction) {
@@ -399,7 +403,7 @@ struct CookModeView: View {
         }
     }
 
-    /// compact = 吸顶后的精简态：去掉卡片标题、图片与步骤说明，压缩 padding，尽量少挡下面的步骤
+    /// compact = 吸顶后的精简态：去掉卡片标题和图片，整体高度尽量压缩，少挡下面的步骤
     private func orderCard(compact: Bool) -> some View {
         Card {
             VStack(alignment: .leading, spacing: compact ? 4 : 10) {
@@ -460,7 +464,8 @@ struct CookModeView: View {
                     Text(lane.recipeTitle)
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
-                    Text("步骤 \(step.step.index) · \(Int(round(step.minutes)))′")
+                    // 吸顶精简态：预计时长不显示，只留「第几步」
+                    Text(compact ? "步骤 \(step.step.index)" : "步骤 \(step.step.index) · \(Int(round(step.minutes)))′")
                         .font(.caption2)
                         .foregroundStyle(.orange)
                 }
@@ -478,42 +483,45 @@ struct CookModeView: View {
                 .disabled(done)
             }
 
-            // 吸顶精简态：图片和步骤说明都不显示，卡片只保留「哪道菜 · 第几步 + 操作」
-            if !compact, !step.step.image.isEmpty {
-                RecipeImageView(path: step.step.image, placeholderText: "", cornerRadius: 8)
-                    .frame(height: 110)
-                    .clipped()
-            }
+            if compact {
+                // 吸顶精简态：标签、预计时长都不显示，位置让给步骤文字；
+                // 文字 + 计时按钮正好占两行，按钮与第二行底线对齐，第二行右侧让出按钮的位置
+                compactStepBlock(lane: lane, step: step, done: done)
+            } else {
+                if !step.step.image.isEmpty {
+                    RecipeImageView(path: step.step.image, placeholderText: "", cornerRadius: 8)
+                        .frame(height: 110)
+                        .clipped()
+                }
 
-            if !compact {
                 Text(step.step.text)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(4)
-            }
 
-            HStack {
-                Text(step.passive ? "等待" : "动手")
-                    .font(.caption2)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(step.passive ? Color.blue.opacity(0.15) : Color.orange.opacity(0.18)))
-                Spacer()
-                Text("\(TimeEstimator.axisCompact(step.start)) → \(TimeEstimator.axisCompact(step.end))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            // 右下角：这一步有预计时间就给一枚「计时」按钮
-            if step.minutes > 0 {
                 HStack {
-                    Spacer(minLength: 0)
-                    timerButton(lane: lane, step: step)
+                    Text(step.passive ? "等待" : "动手")
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(step.passive ? Color.blue.opacity(0.15) : Color.orange.opacity(0.18)))
+                    Spacer()
+                    Text("\(TimeEstimator.axisCompact(step.start)) → \(TimeEstimator.axisCompact(step.end))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                // 右下角：这一步有预计时间就给一枚「计时」按钮
+                if step.minutes > 0 {
+                    HStack {
+                        Spacer(minLength: 0)
+                        timerButton(lane: lane, step: step)
+                    }
                 }
             }
         }
         .padding(compact ? 6 : 10)
-        .frame(width: compact ? 210 : 260)
+        .frame(width: compact ? Self.compactChipWidth : 260)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(done ? Color.green.opacity(0.12) : Color(.secondarySystemBackground))
@@ -523,13 +531,98 @@ struct CookModeView: View {
                 .stroke(selectedKey == key ? Color.accentColor : Color.clear, lineWidth: 2)
         )
         .scaleEffect(compact ? 1 : scale)
-        .opacity(done ? 0.75 : 1)
+        // 已完成的淡化只作用在普通态；精简态里是单独淡化文字，倒计时按钮必须保持不透明
+        .opacity(compact ? 1 : (done ? 0.75 : 1))
         .animation(.easeOut(duration: 0.2), value: scale)
         .onTapGesture {
             selectedKey = key
             scrollTick += 1
             withAnimation { focusedStepID = key }
         }
+    }
+
+    // MARK: - 精简态排版
+
+    /// 精简态卡片宽度 / 内边距（文字可用宽度由这两个值算出）
+    private static let compactChipWidth: CGFloat = 240
+    private static let compactChipPadding: CGFloat = 6
+    /// Font.caption 对应的 UIFont，用真实字形宽度算出「一行能放几个字」
+    private static let chipFont = UIFont.preferredFont(forTextStyle: .caption1)
+    /// 第二行右侧给计时按钮留的宽度（约 8 个字的宽度）
+    private static var timerReserve: CGFloat { chipFont.pointSize * 8 }
+
+    /// 返回在 width 内能放下的最长前缀（放不下就补省略号）以及剩下的文字
+    private func fitLine(_ text: String, width: CGFloat) -> (head: String, rest: String) {
+        let attrs: [NSAttributedString.Key: Any] = [.font: Self.chipFont]
+        let chars = Array(text)
+        guard width > 0, !chars.isEmpty else { return ("", "") }
+
+        var lo = 0
+        var hi = chars.count
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            let w = (String(chars[0..<mid]) as NSString).size(withAttributes: attrs).width
+            if w <= width { lo = mid } else { hi = mid - 1 }
+        }
+
+        let head = String(chars[0..<lo])
+        guard lo < chars.count else { return (head, "") }
+        // 加上「…」也要放得下
+        let ellipsisWidth = ("…" as NSString).size(withAttributes: attrs).width
+        var keep = lo
+        while keep > 0 {
+            let w = (String(chars[0..<keep]) as NSString).size(withAttributes: attrs).width
+            if w + ellipsisWidth <= width { break }
+            keep -= 1
+        }
+        return (String(chars[0..<keep]) + "…", String(chars[keep...]))
+    }
+
+    /// 把步骤文字拆成两行：第一行铺满整宽，第二行右侧让出计时按钮的位置（比第一行短一截）
+    private func compactLines(_ text: String, hasTimer: Bool) -> (first: String, second: String?) {
+        let inner = Self.compactChipWidth - Self.compactChipPadding * 2
+        let full = fitLine(text, width: inner)
+
+        guard hasTimer else {
+            return (full.head, full.rest.isEmpty ? nil : fitLine(full.rest, width: inner).head)
+        }
+        guard !full.rest.isEmpty else {
+            // 只有一行：按钮挂在第一行右侧，第一行也要给按钮让位
+            return (fitLine(text, width: inner - Self.timerReserve).head, nil)
+        }
+        return (full.head, fitLine(full.rest, width: inner - Self.timerReserve).head)
+    }
+
+    /// 精简态的步骤文字区：两行，行高由计时按钮撑起，按钮与同行文字中线对齐
+    private func compactStepBlock(lane: CookLane, step: ScheduledStep, done: Bool) -> some View {
+        let hasTimer = step.minutes > 0
+        let lines = compactLines(step.step.text, hasTimer: hasTimer)
+
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .center, spacing: 6) {
+                compactLineText(lines.first, done: done)
+                if hasTimer, lines.second == nil {
+                    Spacer(minLength: 2)
+                    timerButton(lane: lane, step: step)
+                }
+            }
+            if let second = lines.second {
+                HStack(alignment: .center, spacing: 6) {
+                    compactLineText(second, done: done)
+                    Spacer(minLength: 2)
+                    if hasTimer { timerButton(lane: lane, step: step) }
+                }
+            }
+        }
+    }
+
+    private func compactLineText(_ text: String, done: Bool) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            // 已完成时只淡化文字描述，计时按钮保持完全不透明
+            .opacity(done ? 0.55 : 1)
     }
 
     /// 卡片右下角的计时按钮：没有倒计时时弹出设置窗，已有则显示剩余时间（点开进总览）

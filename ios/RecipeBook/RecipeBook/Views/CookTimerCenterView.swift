@@ -1,5 +1,33 @@
 import SwiftUI
 
+/// 顶部倒计时入口：没有倒计时时是普通时钟图标，有倒计时时变成「绿底 + 中间个数」的徽标（有已到点的转红）
+struct TimerToolbarLabel: View {
+    let count: Int
+    let hasFired: Bool
+    /// 为空时跟图标一起显示的文字（开干页用「计时」，首页不要）
+    var emptyTitle: String? = nil
+
+    var body: some View {
+        Group {
+            if count > 0 {
+                ZStack {
+                    Circle()
+                        .fill(hasFired ? Color.red : Color.green)
+                        .frame(width: 26, height: 26)
+                    Text("\(count)")
+                        .font(.caption2.monospacedDigit().weight(.bold))
+                        .foregroundStyle(.white)
+                }
+                .frame(minWidth: 28, minHeight: 28)
+            } else if let emptyTitle {
+                Label(emptyTitle, systemImage: "timer")
+            } else {
+                Image(systemName: "timer")
+            }
+        }
+    }
+}
+
 /// 倒计时总览：进度条 + ±N 分钟快捷调整 + 暂停 / 删除。开干页顶部入口与菜谱首页入口共用这一个页面。
 struct CookTimerCenterView: View {
     @EnvironmentObject private var timers: CookTimerManager
@@ -171,16 +199,16 @@ struct CookTimerSetupView: View {
                             .labelsHidden()
                     }
 
-                    // ±N 分钟快捷调整
-                    HStack(spacing: 10) {
-                        ForEach([-5, -3, -1, 1, 3, 5], id: \.self) { delta in
+                    // ±N 分钟快捷调整（±1 由上面的 Stepper 负责，这里不再重复）
+                    HStack(spacing: 8) {
+                        ForEach([-10, -5, -3, 3, 5, 10], id: \.self) { delta in
                             Button {
                                 minutes = max(1, minutes + Double(delta))
                             } label: {
                                 Text(delta > 0 ? "+\(delta)" : "\(delta)")
                                     .font(.footnote.monospacedDigit().weight(.semibold))
                                     .foregroundStyle(delta > 0 ? .orange : .primary)
-                                    .frame(minWidth: 46, minHeight: 36)
+                                    .frame(minWidth: 42, minHeight: 36)
                                     .background(
                                         Capsule().fill(delta > 0 ? Color.orange.opacity(0.18) : Color(.tertiarySystemFill))
                                     )

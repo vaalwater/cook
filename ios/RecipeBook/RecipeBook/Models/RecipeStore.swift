@@ -284,15 +284,22 @@ final class RecipeStore: ObservableObject {
         recipes.contains { $0.id == id }
     }
 
+    /// 菜谱被移出待做清单 / 从库中删除时回调（App 里接到倒计时管理器，把它的步骤倒计时一并删掉）
+    var onRecipesRemovedFromPlan: (([Int]) -> Void)?
+
     // MARK: - 写操作
 
     func deleteRecipe(id: Int) {
         deletedIds.insert(id)
+        let wasInPlan = plan.contains { $0.id == id }
         recipes.removeAll { $0.id == id }
         plan.removeAll { $0.id == id }
         randomOrder.removeAll { $0 == id }
+        completedSteps[id] = nil
+        completedStepKeys = Self.completedKeys(completedSteps)
         persistRecipes()
         saveState()
+        if wasInPlan { onRecipesRemovedFromPlan?([id]) }
     }
 
     @discardableResult
@@ -343,9 +350,12 @@ final class RecipeStore: ObservableObject {
     }
 
     func removeFromPlan(id: Int) {
+        guard plan.contains(where: { $0.id == id }) else { return }
         plan.removeAll { $0.id == id }
-        // 菜从待做清单里移走，它的开干进度就没意义了，一并清掉
+        // 菜从待做清单里移走，它的开干进度和步骤倒计时都没意义了，一并清掉
         clearCompleted(recipeId: id)
+        saveState()
+        onRecipesRemovedFromPlan?([id])
     }
 
     func movePlanItem(id: Int, by offset: Int) {
@@ -357,10 +367,12 @@ final class RecipeStore: ObservableObject {
     }
 
     func clearPlan() {
+        let ids = plan.map(\.id)
         plan = []
         completedSteps = [:]
         completedStepKeys = []
         saveState()
+        onRecipesRemovedFromPlan?(ids)
     }
 
     // MARK: - 开干模式的完成状态

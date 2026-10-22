@@ -244,15 +244,15 @@ struct RecipeListView: View {
                 )
         }
 
-        // 有倒计时才显示入口，避免平时占位置
-        if !timers.timers.isEmpty {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showTimers = true
-                } label: {
-                    Label("\(timers.timers.count)", systemImage: "timer")
-                }
-                .tint(timers.timers.contains(where: { $0.fired }) ? .red : .orange)
+        // 有倒计时：绿色圆标中间显示个数；到点时转红
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button {
+                showTimers = true
+            } label: {
+                TimerToolbarLabel(
+                    count: timers.timers.count,
+                    hasFired: timers.timers.contains { $0.fired }
+                )
             }
         }
 
