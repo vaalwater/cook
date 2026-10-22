@@ -70,6 +70,8 @@ struct RecipeQueryResult {
 final class RecipeStore: ObservableObject {
     @Published private(set) var recipes: [Recipe] = []
     @Published var plan: [PlanItem] = []
+    /// 开干模式里已完成的步骤：key = "\(recipeId)-\(stepIndex)"，随 state.json 一起落盘
+    @Published private(set) var completedStepKeys: Set<String> = []
     @Published var errorMessage: String?
 
     private(set) var manifest: SeedManifest?
@@ -83,6 +85,7 @@ final class RecipeStore: ObservableObject {
     private var updatedOverrides: [Int: String] = [:]
     private var deletedIds: Set<Int> = []
     private var randomOrder: [Int] = []
+    private var completedSteps: [Int: [Int]] = [:]
 
     init() {
         let fm = FileManager.default
@@ -130,6 +133,8 @@ final class RecipeStore: ObservableObject {
             deletedIds = Set(state.deletedIds)
             updatedOverrides = state.updatedAt
             plan = state.plan
+            completedSteps = state.completedSteps
+            completedStepKeys = Self.completedKeys(completedSteps)
 
             list = list.filter { !deletedIds.contains($0.id) }
             list = list.map { recipe in
@@ -148,21 +153,47 @@ final class RecipeStore: ObservableObject {
         var updatedAt: [Int: String]
         var deletedIds: [Int]
         var plan: [PlanItem]
+        var completedSteps: [Int: [Int]]
+
+        private enum CodingKeys: String, CodingKey {
+            case updatedAt, deletedIds, plan, completedSteps
+        }
+
+        init(updatedAt: [Int: String] = [:],
+             deletedIds: [Int] = [],
+             plan: [PlanItem] = [],
+             completedSteps: [Int: [Int]] = [:]) {
+            self.updatedAt = updatedAt
+            self.deletedIds = deletedIds
+            self.plan = plan
+            self.completedSteps = completedSteps
+        }
+
+        /// 老版本的 state.json 没有 completedSteps，逐字段兜底，别让整个 state 解码失败（会连 plan 一起丢）
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(
+                updatedAt: try c.decodeIfPresent([Int: String].self, forKey: .updatedAt) ?? [:],
+                deletedIds: try c.decodeIfPresent([Int].self, forKey: .deletedIds) ?? [],
+                plan: try c.decodeIfPresent([PlanItem].self, forKey: .plan) ?? [],
+                completedSteps: try c.decodeIfPresent([Int: [Int]].self, forKey: .completedSteps) ?? [:]
+            )
+        }
     }
 
     private func loadState() -> PersistedState {
         guard let data = try? Data(contentsOf: stateURL) else {
-            return PersistedState(updatedAt: [:], deletedIds: [], plan: [])
+            return PersistedState()
         }
-        return (try? JSONDecoder().decode(PersistedState.self, from: data))
-            ?? PersistedState(updatedAt: [:], deletedIds: [], plan: [])
+        return (try? JSONDecoder().decode(PersistedState.self, from: data)) ?? PersistedState()
     }
 
     private func saveState() {
         let state = PersistedState(
             updatedAt: updatedOverrides,
             deletedIds: Array(deletedIds).sorted(),
-            plan: plan
+            plan: plan,
+            completedSteps: completedSteps
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: stateURL, options: .atomic)
@@ -198,10 +229,13 @@ final class RecipeStore: ObservableObject {
             return a.id < b.id
         }
 
+        // page 表示「已加载的页数」，返回的是前 page 页的**累积**结果。
+        // 首页是无限滚动（滚到底就 +1 页追加），如果这里只给当前页切片，翻页时整屏内容会被替换，
+        // 新的最后一项又立刻触发下一页，几步就越过最后一页变成空列表。
         let page = max(1, q.page)
         let size = max(1, q.pageSize)
-        let start = (page - 1) * size
-        let items = start < sorted.count ? Array(sorted[start..<min(start + size, sorted.count)]) : []
+        let end = min(page * size, sorted.count)
+        let items = Array(sorted[0..<end])
 
         return RecipeQueryResult(items: items, total: sorted.count, page: page, pageSize: size)
     }
@@ -310,7 +344,8 @@ final class RecipeStore: ObservableObject {
 
     func removeFromPlan(id: Int) {
         plan.removeAll { $0.id == id }
-        saveState()
+        // 菜从待做清单里移走，它的开干进度就没意义了，一并清掉
+        clearCompleted(recipeId: id)
     }
 
     func movePlanItem(id: Int, by offset: Int) {
@@ -323,6 +358,43 @@ final class RecipeStore: ObservableObject {
 
     func clearPlan() {
         plan = []
+        completedSteps = [:]
+        completedStepKeys = []
+        saveState()
+    }
+
+    // MARK: - 开干模式的完成状态
+
+    private static func completedKeys(_ map: [Int: [Int]]) -> Set<String> {
+        var keys: Set<String> = []
+        for (recipeId, indices) in map {
+            for index in indices { keys.insert("\(recipeId)-\(index)") }
+        }
+        return keys
+    }
+
+    func setCompleted(recipeId: Int, stepIndex: Int, done: Bool) {
+        var indices = completedSteps[recipeId] ?? []
+        if done {
+            guard !indices.contains(stepIndex) else { return }
+            indices.append(stepIndex)
+        } else {
+            guard indices.contains(stepIndex) else { return }
+            indices.removeAll { $0 == stepIndex }
+        }
+        if indices.isEmpty {
+            completedSteps[recipeId] = nil
+        } else {
+            completedSteps[recipeId] = indices
+        }
+        completedStepKeys = Self.completedKeys(completedSteps)
+        saveState()
+    }
+
+    func clearCompleted(recipeId: Int) {
+        guard completedSteps[recipeId] != nil else { return }
+        completedSteps[recipeId] = nil
+        completedStepKeys = Self.completedKeys(completedSteps)
         saveState()
     }
 

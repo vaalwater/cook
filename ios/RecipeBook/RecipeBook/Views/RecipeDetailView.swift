@@ -13,6 +13,7 @@ struct RecipeDetailView: View {
 
     @EnvironmentObject private var store: RecipeStore
     @Environment(\.openURL) private var openURL
+    @Environment(\.openPlanTab) private var openPlanTab
     @State private var showDeleteConfirm = false
 
     private var inPlan: Bool { store.plan.contains { $0.id == recipe.id } }
@@ -239,17 +240,23 @@ struct RecipeDetailView: View {
             Button("关闭") { onAction(.dismiss) }
         }
         ToolbarItemGroup(placement: .primaryAction) {
+            // 1. 加入待做 / 移出待做（互相切换）
             Button {
-                onAction(.addToPlan)
+                if inPlan {
+                    store.removeFromPlan(id: recipe.id)
+                } else {
+                    onAction(.addToPlan)
+                }
             } label: {
-                Label(inPlan ? "已在清单" : "待做", systemImage: inPlan ? "checkmark" : "flame")
+                Label(inPlan ? "移出待做" : "待做", systemImage: inPlan ? "flame.fill" : "flame")
             }
-            .disabled(inPlan)
 
+            // 2. 进入待做清单页（关掉详情再切标签，清单页里有「开干」入口）
             Button {
-                onAction(.touch)
+                onAction(.dismiss)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { openPlanTab() }
             } label: {
-                Label("刷新更新时间", systemImage: "arrow.clockwise")
+                Label("待做清单", systemImage: "list.bullet")
             }
 
             Menu {

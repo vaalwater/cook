@@ -63,4 +63,61 @@ enum StepText {
         }
         return result
     }
+
+    // MARK: - 精简标题
+
+    /// 句首的连词 / 介词，精简时去掉不影响语义（"然后倒入锅中" → "倒入锅中"）
+    private static let leadWords = ["然后", "接着", "随后", "再", "将", "把", "先"]
+    /// 句尾的补充说明
+    private static let tailWords = ["备用", "待用", "待命", "即可", "就可以了", "盛出备用"]
+
+    /// 把一整段步骤说明压成一句短标题（倒计时标题用）。
+    ///
+    /// 不是简单截断：先取第一个分句 → 去掉句首虚词与括号内容 → 去掉句尾"备用"之类 →
+    /// 超长时尽量在顿号/逗号处收尾，实在没有才硬截。
+    static func brief(_ text: String, limit: Int = 12) -> String {
+        var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return "" }
+
+        // 去掉括号补充说明：（约 5 克）
+        s = s.replacingOccurrences(of: #"[（(][^（）()]*[）)]"#, with: "", options: .regularExpression)
+        s = s.trimmingCharacters(in: .whitespaces)
+
+        // 取第一个分句；太短就往后并，避免出现"锅"这种没有信息量的标题
+        let parts = s.components(separatedBy: CharacterSet(charactersIn: "。！？；;!?\n"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        var first = ""
+        for part in parts {
+            first = first.isEmpty ? part : first + part
+            if first.count >= 4 { break }
+        }
+        s = first.isEmpty ? s : first
+
+        // 句首虚词
+        var changed = true
+        while changed {
+            changed = false
+            for word in leadWords where s.hasPrefix(word) && s.count > word.count + 1 {
+                s = String(s.dropFirst(word.count))
+                changed = true
+            }
+        }
+
+        // 句尾补充说明（前面可能带个标点）
+        for word in tailWords where s.hasSuffix(word) && s.count > word.count + 1 {
+            s = String(s.dropLast(word.count))
+            s = s.trimmingCharacters(in: CharacterSet(charactersIn: "，,、 "))
+        }
+
+        guard s.count > limit else { return s }
+
+        // 超长：优先在顿号 / 逗号处断
+        let cut = String(s.prefix(limit + 4))
+        if let idx = cut.lastIndex(where: { "，,、；;".contains($0) }) {
+            let candidate = String(cut[cut.startIndex..<idx])
+            if candidate.count >= max(4, limit - 4) { return candidate }
+        }
+        return String(s.prefix(limit)) + "…"
+    }
 }

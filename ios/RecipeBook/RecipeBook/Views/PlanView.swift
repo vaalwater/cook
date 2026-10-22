@@ -2,9 +2,12 @@ import SwiftUI
 
 struct PlanView: View {
     @EnvironmentObject private var store: RecipeStore
+    @EnvironmentObject private var timers: CookTimerManager
 
     @State private var showCookMode = false
     @State private var showClearConfirm = false
+    /// 点清单里的菜谱 → 弹出这道菜的详情
+    @State private var selected: Recipe?
 
     private var recipes: [Recipe] {
         store.plan.compactMap { store.recipe(id: $0.id) }
@@ -47,6 +50,10 @@ struct PlanView: View {
                                         store.movePlanItem(id: item.id, by: 1)
                                     }
                                 }
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selected = store.recipe(id: item.id)
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
@@ -93,7 +100,30 @@ struct PlanView: View {
             .fullScreenCover(isPresented: $showCookMode) {
                 CookModeView(recipes: recipes)
                     .environmentObject(store)
+                    .environmentObject(timers)
             }
+            .sheet(item: $selected) { recipe in
+                RecipeDetailView(recipe: recipe) { action in
+                    handle(action, recipe: recipe)
+                }
+            }
+        }
+    }
+
+    // MARK: - 交互
+
+    private func handle(_ action: RecipeDetailAction, recipe: Recipe) {
+        switch action {
+        case .addToPlan:
+            store.addToPlan(recipe)
+        case .touch:
+            store.touchRecipe(id: recipe.id)
+            selected = nil
+        case .delete:
+            store.deleteRecipe(id: recipe.id)
+            selected = nil
+        case .dismiss:
+            selected = nil
         }
     }
 

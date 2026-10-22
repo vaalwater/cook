@@ -16,6 +16,21 @@ struct ScrapeOptions {
     var maxBatch: Int = 20
 }
 
+/// 单个菜谱的抓取状态（列表每行前面的小图标由它决定）
+enum ScrapeItemState {
+    case pending    // 待命
+    case running    // 进行中
+    case done       // 完成
+    case failed     // 出错
+}
+
+struct ScrapeItem: Identifiable {
+    let id: String                 // 菜谱 ID
+    var state: ScrapeItemState = .pending
+    var title: String?             // 抓到菜名后显示
+    var message: String?           // 副标题：跳过原因 / 错误信息
+}
+
 /// 手机上的抓取流程：探测会话 → 必要时请人工登录/过滑块 → 逐个抓页面 → 解析 → 图片本地化 → 写入本地库。
 @MainActor
 final class ScrapeService: ObservableObject {
@@ -27,6 +42,8 @@ final class ScrapeService: ObservableObject {
     @Published var total: Int = 0
     /// 当前正在处理第几道菜（给进度条用）
     @Published var currentTitle: String?
+    /// 本次任务里每一条的状态（驱动「ID 输入区」变成的进度列表）
+    @Published var items: [ScrapeItem] = []
     @Published var sessionReady: Bool = false
     @Published var sessionMessage: String = "未检查登录态"
 
@@ -79,9 +96,21 @@ final class ScrapeService: ObservableObject {
         task = Task { await run(ids: ids, options: options) }
     }
 
+    /// 回到输入态：清空上次的进度列表，让用户重新粘贴 ID
+    func reset() {
+        guard !isRunning else { return }
+        items = []
+        current = 0
+        total = 0
+        currentTitle = nil
+        logs = []
+        status = .idle
+    }
+
     func cancel() {
         // 正在等人工登录时，光 cancel Task 不会唤醒 CheckedContinuation
         if case .waitingLogin = status { resumeLogin(with: []) }
+        failRunningItems(message: "已取消")
         task?.cancel()
         task = nil
         status = .failed(message: "已取消")
@@ -140,6 +169,8 @@ final class ScrapeService: ObservableObject {
         total = ids.count
         currentTitle = nil
         logs = []
+        // 输入区在 start 之后会变成这张进度表，每行一个小图标
+        items = ids.map { ScrapeItem(id: $0) }
 
         let client = SiteClient(cookies: SessionStore.load()?.cookies ?? [])
         self.client = client
@@ -167,6 +198,7 @@ final class ScrapeService: ObservableObject {
             let cookies = await waitForLogin()
             // 用户点了「取消」→ 空 Cookie，直接中止，不要再回到 probe 循环死等
             guard !cookies.isEmpty else {
+                failRunningItems(message: "已取消登录")
                 status = .failed(message: "已取消登录，抓取中止")
                 log("已取消登录")
                 return
@@ -176,6 +208,7 @@ final class ScrapeService: ObservableObject {
         }
 
         guard sessionOK else {
+            failRunningItems(message: "会话不可用")
             status = .failed(message: "登录后仍无法访问菜谱页，建议稍后再试")
             return
         }
@@ -186,6 +219,7 @@ final class ScrapeService: ObservableObject {
         do {
             parser = try await RecipeParser.create()
         } catch {
+            failRunningItems(message: error.localizedDescription)
             status = .failed(message: error.localizedDescription)
             return
         }
@@ -200,11 +234,13 @@ final class ScrapeService: ObservableObject {
             if Task.isCancelled { break }
             current = index + 1
             currentTitle = nil
+            setItem(id: id, state: .running)
             let url = String(format: SessionStore.recipeURLTemplate, id)
 
             if !options.forceUpdate, store.hasRecipe(id: Int(id) ?? 0) {
                 skipped += 1
                 log("(\(index + 1)/\(ids.count)) 跳过 \(id)（已存在）")
+                setItem(id: id, state: .done, message: "已存在，跳过")
                 continue
             }
 
@@ -254,14 +290,18 @@ final class ScrapeService: ObservableObject {
                 let outcome = store.upsert(recipe)
                 if outcome.isNew { added += 1 } else { updated += 1 }
                 log("(\(index + 1)/\(ids.count)) ✓ \(recipe.title)")
+                setItem(id: id, state: .done, title: recipe.title)
                 if let warnings = raw.warnings, !warnings.isEmpty {
                     log("  提示：\(warnings.joined(separator: "、"))")
                 }
             } catch {
                 failed += 1
-                log("(\(index + 1)/\(ids.count)) ✗ \(id)：\(error.localizedDescription)")
+                let reason = error.localizedDescription
+                log("(\(index + 1)/\(ids.count)) ✗ \(id)：\(reason)")
+                setItem(id: id, state: .failed, message: reason)
                 let code = (error as? ScrapeError)?.code
                 if code == .challenge || code == .loginRequired {
+                    failRunningItems(message: "会话失效")
                     status = .failed(message: "会话失效，请重新登录后重试")
                     return
                 }
@@ -272,6 +312,22 @@ final class ScrapeService: ObservableObject {
         let summary = "新抓 \(added) 条，更新 \(updated) 条，跳过 \(skipped) 条，失败 \(failed) 条，图片 \(imageCount) 张"
         log(summary)
         status = .finished(summary: summary)
+    }
+
+    /// 整体中止时，把「进行中」的那条标成失败，避免图标永远转圈
+    private func failRunningItems(message: String) {
+        for index in items.indices where items[index].state == .running {
+            items[index].state = .failed
+            items[index].message = message
+        }
+    }
+
+    /// 更新某一条的状态（列表里那行的小图标会跟着变）
+    private func setItem(id: String, state: ScrapeItemState, title: String? = nil, message: String? = nil) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].state = state
+        if let title { items[index].title = title }
+        items[index].message = message
     }
 
     private func waitForLogin() async -> [SiteCookie] {

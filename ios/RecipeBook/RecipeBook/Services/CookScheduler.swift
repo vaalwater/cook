@@ -26,6 +26,8 @@ struct AggregatedIngredient: Identifiable, Hashable {
     let name: String
     let amounts: [String]
     let recipes: Int
+    /// 用到这份食材的菜谱 id（多道菜时用来在清单后面标色块）
+    let recipeIds: [Int]
 
     var id: String { key }
 }
@@ -149,9 +151,11 @@ enum CookScheduler {
         return cleaned.trimmingCharacters(in: .whitespaces)
     }
 
+    typealias AggregatedMap = [String: (name: String, amounts: [String], recipes: Int, ids: Set<Int>)]
+
     static func aggregate(_ recipes: [Recipe]) -> (main: [AggregatedIngredient], seasoning: [AggregatedIngredient]) {
-        var mainMap: [String: (name: String, amounts: [String], recipes: Int)] = [:]
-        var seasonMap: [String: (name: String, amounts: [String], recipes: Int)] = [:]
+        var mainMap: AggregatedMap = [:]
+        var seasonMap: AggregatedMap = [:]
 
         for recipe in recipes {
             for (target, items) in [("main", recipe.ingredientGroups.main), ("seasoning", recipe.ingredientGroups.seasoning)] {
@@ -159,21 +163,29 @@ enum CookScheduler {
                     let key = normalizeIngredientName(item.name)
                     if key.isEmpty { continue }
                     if target == "main" {
-                        if mainMap[key] == nil { mainMap[key] = (item.name, [], 0) }
+                        if mainMap[key] == nil { mainMap[key] = (item.name, [], 0, []) }
                         mainMap[key]!.amounts.append(item.amount)
                         mainMap[key]!.recipes += 1
+                        mainMap[key]!.ids.insert(recipe.id)
                     } else {
-                        if seasonMap[key] == nil { seasonMap[key] = (item.name, [], 0) }
+                        if seasonMap[key] == nil { seasonMap[key] = (item.name, [], 0, []) }
                         seasonMap[key]!.amounts.append(item.amount)
                         seasonMap[key]!.recipes += 1
+                        seasonMap[key]!.ids.insert(recipe.id)
                     }
                 }
             }
         }
 
-        let convert: ([String: (name: String, amounts: [String], recipes: Int)]) -> [AggregatedIngredient] = { map in
+        let convert: (AggregatedMap) -> [AggregatedIngredient] = { map in
             map.map { key, value in
-                AggregatedIngredient(key: key, name: value.name, amounts: value.amounts, recipes: value.recipes)
+                AggregatedIngredient(
+                    key: key,
+                    name: value.name,
+                    amounts: value.amounts,
+                    recipes: value.recipes,
+                    recipeIds: value.ids.sorted()
+                )
             }
             .sorted { a, b in
                 if a.recipes != b.recipes { return a.recipes > b.recipes }

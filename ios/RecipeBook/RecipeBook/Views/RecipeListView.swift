@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RecipeListView: View {
     @EnvironmentObject private var store: RecipeStore
+    @EnvironmentObject private var timers: CookTimerManager
 
     @State private var q = ""
     @State private var tag = ""
@@ -12,6 +13,10 @@ struct RecipeListView: View {
     @State private var tagsExpanded = false
     @State private var selected: Recipe?
     @State private var showScrape = false
+    @State private var showTimers = false
+    @State private var showCookMode = false
+    @State private var cookRecipes: [Recipe] = []
+    @State private var focusStepKey: String?
 
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -22,6 +27,8 @@ struct RecipeListView: View {
     }
 
     private let collapsedTagLimit = 40
+    /// 展开后标签区最多占的高度（约 5 行：每行约 30pt + 6pt 间距）
+    private let expandedTagBarHeight: CGFloat = 180
     private var allTags: [(name: String, count: Int)] { store.tags() }
     private var shownTags: [(name: String, count: Int)] {
         tagsExpanded ? allTags : Array(allTags.prefix(collapsedTagLimit))
@@ -41,8 +48,25 @@ struct RecipeListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $q, prompt: "搜索菜名、用料、步骤…")
             .toolbar { toolbarContent }
+            // 筛选条件一变就回到第一页（分页是累积的，不重置会带着旧页数加载一堆）
+            .onChange(of: q) { _, _ in page = 1 }
+            .onChange(of: sort) { _, _ in page = 1 }
+            .onChange(of: store.recipes.count) { _, _ in page = 1 }
             .sheet(isPresented: $showScrape) {
                 ScrapeView()
+                    .environmentObject(timers)
+            }
+            .sheet(isPresented: $showTimers) {
+                // 点倒计时标题 → 进开干页并聚焦到那一步（菜谱不在清单里就先加进去）
+                CookTimerCenterView { recipeId, stepIndex in
+                    openCookMode(recipeId: recipeId, stepIndex: stepIndex)
+                }
+                .environmentObject(timers)
+            }
+            .fullScreenCover(isPresented: $showCookMode) {
+                CookModeView(recipes: cookRecipes, focusStepKey: focusStepKey)
+                    .environmentObject(store)
+                    .environmentObject(timers)
             }
             .sheet(item: $selected) { recipe in
                 RecipeDetailView(recipe: recipe) { action in
@@ -77,9 +101,7 @@ struct RecipeListView: View {
     private var summaryText: String {
         let r = result
         if r.total == 0 { return "没有匹配的菜谱" }
-        let start = (r.page - 1) * r.pageSize + 1
-        let end = min(r.page * r.pageSize, r.total)
-        var text = "共 \(r.total) 道菜谱，显示第 \(start)–\(end) 条"
+        var text = "共 \(r.total) 道菜谱，已显示 1–\(r.items.count) 条"
         if !tag.isEmpty { text += " · 标签「\(tag)」" }
         return text
     }
@@ -90,19 +112,7 @@ struct RecipeListView: View {
                 EmptyView()
             } else {
                 HStack(alignment: .top, spacing: 6) {
-                    if tagsExpanded {
-                        FlowLayout(spacing: 6) {
-                            tagChips
-                        }
-                        .padding(.horizontal)
-                    } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                tagChips
-                            }
-                            .padding(.horizontal)
-                        }
-                    }
+                    tagsArea
 
                     if allTags.count > collapsedTagLimit {
                         Button {
@@ -120,6 +130,29 @@ struct RecipeListView: View {
                     }
                 }
                 .padding(.vertical, 4)
+            }
+        }
+    }
+
+    /// 折叠时横向滑一行；展开后换行铺最多 5 行，超出的在固定高度里自己滚。
+    /// 注意：展开态必须用固定高度 + 内部滚动，否则几百个标签会把下面的列表整个顶出屏幕。
+    @ViewBuilder
+    private var tagsArea: some View {
+        if tagsExpanded {
+            ScrollView([.vertical], showsIndicators: true) {
+                FlowLayout(spacing: 6) {
+                    tagChips
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 2)
+            }
+            .frame(height: expandedTagBarHeight)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    tagChips
+                }
+                .padding(.horizontal)
             }
         }
     }
@@ -211,6 +244,18 @@ struct RecipeListView: View {
                 )
         }
 
+        // 有倒计时才显示入口，避免平时占位置
+        if !timers.timers.isEmpty {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showTimers = true
+                } label: {
+                    Label("\(timers.timers.count)", systemImage: "timer")
+                }
+                .tint(timers.timers.contains(where: { $0.fired }) ? .red : .orange)
+            }
+        }
+
         ToolbarItem(placement: .navigationBarTrailing) {
             Button {
                 showScrape = true
@@ -265,6 +310,17 @@ struct RecipeListView: View {
     }
 
     // MARK: - 交互
+
+    /// 从倒计时跳进开干页面：这道菜已在清单里就带上整个清单，否则只做这一道；并聚焦到对应步骤
+    private func openCookMode(recipeId: Int, stepIndex: Int) {
+        showTimers = false
+        guard let recipe = store.recipe(id: recipeId) else { return }
+        let inPlan = store.plan.contains { $0.id == recipeId }
+        if !inPlan { store.addToPlan(recipe) }
+        cookRecipes = inPlan ? store.plan.compactMap { store.recipe(id: $0.id) } : [recipe]
+        focusStepKey = "\(recipeId)-\(stepIndex)"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showCookMode = true }
+    }
 
     private func handle(_ action: RecipeDetailAction, recipe: Recipe) {
         switch action {

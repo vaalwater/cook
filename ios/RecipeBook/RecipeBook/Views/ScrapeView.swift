@@ -22,7 +22,7 @@ struct ScrapeView: View {
         NavigationStack {
             Form {
                 Section { sessionContent } header: { Text("登录态") }
-                Section { inputContent } header: { Text("菜谱 ID / 链接") }
+                Section { inputOrQueue } header: { Text("菜谱 ID / 链接") }
                 Section { optionsContent } header: { Text("选项") }
                 Section { progressContent } header: { Text("进度") }
             }
@@ -31,17 +31,6 @@ struct ScrapeView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        scrape.start(
-                            input: input,
-                            options: ScrapeOptions(withImages: withImages, forceUpdate: forceUpdate)
-                        )
-                    } label: {
-                        Label("开始", systemImage: "arrow.down.circle.fill")
-                    }
-                    .disabled(scrape.isRunning || ids.isEmpty)
                 }
             }
             .sheet(isPresented: $showLogin) {
@@ -67,6 +56,10 @@ struct ScrapeView: View {
                 Button("取消", role: .cancel) {}
             }
         }
+    }
+
+    static var siteURL: URL {
+        URL(string: SessionStore.baseURL) ?? URL(string: "https://www.xiachufang.com")!
     }
 
     static func probeURL(first: String?) -> URL {
@@ -105,8 +98,121 @@ struct ScrapeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// 没开始抓取时是输入框 + 下载按钮；一旦开始，原输入区变成每条一行的状态列表
+    private var inputOrQueue: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if scrape.items.isEmpty {
+                inputContent
+                downloadButton
+            } else {
+                queueContent
+            }
+        }
+    }
+
+    private var downloadButton: some View {
+        HStack {
+            Button {
+                scrape.start(
+                    input: input,
+                    options: ScrapeOptions(withImages: withImages, forceUpdate: forceUpdate)
+                )
+            } label: {
+                Label("下载", systemImage: "arrow.down.circle.fill")
+                    .font(.subheadline.weight(.medium))
+            }
+            .disabled(scrape.isRunning || ids.isEmpty)
+            .buttonStyle(.borderedProminent)
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var queueContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(scrape.items) { item in
+                HStack(alignment: .top, spacing: 8) {
+                    // 进行中的图标一直转，避免看起来像卡住
+                    Group {
+                        if item.state == .running {
+                            SpinningIcon(
+                                systemName: Self.iconName(for: item.state),
+                                color: Self.iconColor(for: item.state)
+                            )
+                        } else {
+                            Image(systemName: Self.iconName(for: item.state))
+                                .font(.subheadline)
+                                .foregroundStyle(Self.iconColor(for: item.state))
+                        }
+                    }
+                    .frame(width: 18, alignment: .center)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title ?? "菜谱 \(item.id)")
+                            .font(.footnote)
+                        if let message = item.message, !message.isEmpty {
+                            Text(message)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+
+            // 「停止抓取」在下面的进度区已经有一个，这里只在结束后给回退入口
+            if !scrape.isRunning {
+                Button { scrape.reset() } label: {
+                    Label("重新输入菜谱 ID", systemImage: "pencil")
+                        .font(.subheadline)
+                }
+            }
+        }
+    }
+
+/// 匀速旋转的小图标（只给「进行中」用）
+private struct SpinningIcon: View {
+    let systemName: String
+    let color: Color
+
+    @State private var spinning = false
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.subheadline)
+            .foregroundStyle(color)
+            .rotationEffect(.degrees(spinning ? 360 : 0))
+            .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: spinning)
+            .onAppear { spinning = true }
+    }
+}
+
+private static func iconName(for state: ScrapeItemState) -> String {
+        switch state {
+        case .pending: return "circle"                        // 待命
+        case .running: return "arrow.triangle.2.circlepath"   // 进行中
+        case .done: return "checkmark.circle.fill"            // 完成
+        case .failed: return "xmark.circle.fill"              // 出错
+        }
+    }
+
+    private static func iconColor(for state: ScrapeItemState) -> Color {
+        switch state {
+        case .pending: return .secondary
+        case .running: return .orange
+        case .done: return .green
+        case .failed: return .red
+        }
+    }
+
     private var inputContent: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // 外链：跳到 Safari 打开下厨房，用户在站里挑菜谱后复制链接回来抓
+            Link(destination: Self.siteURL) {
+                Label("去下厨房找菜谱", systemImage: "arrow.up.forward.square")
+                    .font(.footnote)
+            }
+
             TextEditor(text: $input)
                 .frame(minHeight: 120)
                 .overlay(alignment: .topLeading) {

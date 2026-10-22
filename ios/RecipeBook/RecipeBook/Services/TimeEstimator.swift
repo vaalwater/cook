@@ -136,6 +136,28 @@ enum TimeEstimator {
         return estimateStepMinutes(text)
     }
 
+    // MARK: - 倒计时默认值
+
+    private static let rangeRe = try! NSRegularExpression(
+        pattern: #"(\d+(?:\.\d+)?)\s*(?:[-~–—]|到|至)\s*(\d+(?:\.\d+)?)\s*(小时|分钟)"#,
+        options: []
+    )
+
+    /// 步骤文本里写了区间（「炖 20-30 分钟」）就取中间值，否则用估算时长。
+    /// 用来给倒计时弹窗填默认值。
+    static func suggestedMinutes(for text: String, fallback: Double) -> Double {
+        let nsText = text as NSString
+        let range = NSRange(location: 0, length: nsText.length)
+        guard let m = rangeRe.firstMatch(in: text, options: [], range: range), m.numberOfRanges > 3,
+              let aRange = Range(m.range(at: 1), in: text), let a = Double(text[aRange]),
+              let bRange = Range(m.range(at: 2), in: text), let b = Double(text[bRange]),
+              let uRange = Range(m.range(at: 3), in: text) else {
+            return fallback
+        }
+        let factor = cnUnitMinutes[String(text[uRange])] ?? 1
+        return ((a + b) / 2) * factor
+    }
+
     // MARK: - 展示
 
     static func format(_ minutes: Double) -> String {
