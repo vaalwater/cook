@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct RecipeListView: View {
+    @Environment(\.isSearching) private var isSearching
     @EnvironmentObject private var store: RecipeStore
     @EnvironmentObject private var timers: CookTimerManager
 
@@ -17,6 +18,8 @@ struct RecipeListView: View {
     @State private var showCookMode = false
     @State private var cookRecipes: [Recipe] = []
     @State private var focusStepKey: String?
+    /// 最近搜索：数组顺序就是时间倒序（最新的在最前）
+    @State private var searchHistory: [String] = []
 
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -40,14 +43,31 @@ struct RecipeListView: View {
                 summaryBar
                 tagBar
                 ScrollView {
-                    grid
-                    footerView
+                    // 点开搜索框还没输入时：内容区换成最近搜索列表；一输入就回到正常结果
+                    if isSearching, q.isEmpty, !searchHistory.isEmpty {
+                        recentSearchList
+                    } else {
+                        grid
+                        footerView
+                    }
                 }
             }
             .background(Color(.systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $q, prompt: "搜索菜名、用料、步骤…")
+            // 输入过程中：搜索框下方只给匹配到的历史词
+            .searchSuggestions {
+                if !q.isEmpty {
+                    ForEach(historySuggestions(q), id: \.self) { term in
+                        Text(term).searchCompletion(term)
+                    }
+                }
+            }
+            .onSubmit(of: .search) { rememberSearch(q) }
             .toolbar { toolbarContent }
+            .onAppear {
+                searchHistory = UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []
+            }
             // 筛选条件一变就回到第一页（分页是累积的，不重置会带着旧页数加载一堆）
             .onChange(of: q) { _, _ in page = 1 }
             .onChange(of: sort) { _, _ in page = 1 }
@@ -180,6 +200,74 @@ struct RecipeListView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    // MARK: - 搜索历史
+
+    private static let historyKey = "recipeSearchHistory"
+    /// 按时间倒序保留最近多少条
+    private static let historyLimit = 15
+
+    /// 点开搜索框、还没输入时，内容区显示的最近搜索列表
+    private var recentSearchList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text("最近搜索")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button("清空") { clearHistory() }
+                    .font(.footnote)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.orange)
+            }
+            .padding(.bottom, 6)
+
+            ForEach(searchHistory, id: \.self) { term in
+                Button {
+                    q = term
+                    rememberSearch(term)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .foregroundStyle(.secondary)
+                        Text(term)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Divider()
+            }
+        }
+        .padding()
+    }
+
+    /// 历史记录只在搜索框聚焦时显示在搜索框下方：
+    /// 没输入文字 → 全量按时间倒序；有输入 → 只显示包含输入的那些
+    private func historySuggestions(_ text: String) -> [String] {
+        guard !searchHistory.isEmpty else { return [] }
+        guard !text.isEmpty else { return searchHistory }
+        return searchHistory.filter { $0.localizedStandardContains(text) }
+    }
+
+    /// 记一条搜索词：自动去重、插到最前、超出上限的丢掉（数组顺序 = 时间倒序）
+    private func rememberSearch(_ text: String) {
+        let term = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return }
+        var list = searchHistory.filter { $0 != term }
+        list.insert(term, at: 0)
+        if list.count > Self.historyLimit { list = Array(list.prefix(Self.historyLimit)) }
+        searchHistory = list
+        UserDefaults.standard.set(list, forKey: Self.historyKey)
+    }
+
+    private func clearHistory() {
+        searchHistory = []
+        UserDefaults.standard.removeObject(forKey: Self.historyKey)
     }
 
     // MARK: - 网格
@@ -316,8 +404,14 @@ struct RecipeListView: View {
         showTimers = false
         guard let recipe = store.recipe(id: recipeId) else { return }
         let inPlan = store.plan.contains { $0.id == recipeId }
-        if !inPlan { store.addToPlan(recipe) }
-        cookRecipes = inPlan ? store.plan.compactMap { store.recipe(id: $0.id) } : [recipe]
+        if !inPlan {
+            store.addToPlan(recipe)
+            cookRecipes = [recipe]
+        } else {
+            // 这道菜要是被标了「下次做」，点它的倒计时就把它拉回本次做，否则跳过去找不到它
+            if store.isDeferred(id: recipeId) { store.setDeferred(id: recipeId, deferred: false) }
+            cookRecipes = store.cookPlanRecipes()
+        }
         focusStepKey = "\(recipeId)-\(stepIndex)"
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showCookMode = true }
     }

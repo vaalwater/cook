@@ -18,8 +18,9 @@ enum TimeEstimator {
         pattern: #"(\d+(?:\.\d+)?)\s*(?:秒|sec|secs|second|seconds)"#,
         options: [.caseInsensitive]
     )
+    /// 中文数字时间：竖着排的备选都覆盖到 —— 十五 / 二十 / 二十五 / 十 / 单字（含 半、几）
     private static let cnTimeRe = try! NSRegularExpression(
-        pattern: #"((?:[一二两三四五六七八九]十[一二三四五六七八九]?|[一二三四五六七八九]十|[一二两三四五六七八九十半几]))(?:个)?(小时|分钟|刻钟|秒)"#,
+        pattern: #"((?:[一二两三四五六七八九]?十[一二三四五六七八九]?|[一二两三四五六七八九十半几]))(?:个)?(小时|分钟|刻钟|秒)"#,
         options: []
     )
     private static let cnTimeTest = try! NSRegularExpression(
@@ -57,14 +58,21 @@ enum TimeEstimator {
         return Double(text[r])
     }
 
+    /// 解析中文数字：十五=15、二十=20、三十五=35、十=10、五=5
     private static func cnValue(_ s: String) -> Double {
         let chars = Array(s)
-        if chars.count == 1, let v = cnNumbers[chars[0]] { return v }
-        if chars.count == 2, chars[1] == "十" { return (cnNumbers[chars[0]] ?? 0) * 10 }
-        if chars.count == 3, chars[1] == "十" {
-            return (cnNumbers[chars[0]] ?? 0) * 10 + (cnNumbers[chars[2]] ?? 0)
+        guard let first = chars.first else { return 0 }
+
+        guard let tenIndex = chars.firstIndex(of: "十") else {
+            // 没有「十」：只能是单字（五 / 半 / 几 …）
+            return chars.count == 1 ? (cnNumbers[first] ?? 0) : 0
         }
-        return 0
+
+        // 「十」前面是数字就是几十（二十），没有就当十 + 后面的零头（十五）
+        var total: Double = tenIndex == chars.startIndex ? 10 : (cnNumbers[first] ?? 1) * 10
+        let after = chars.index(after: tenIndex)
+        if after < chars.endIndex { total += cnNumbers[chars[after]] ?? 0 }
+        return total
     }
 
     static func parseTimeToMinutes(_ text: String) -> Double {

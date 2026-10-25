@@ -6,6 +6,7 @@ struct CookModeView: View {
     let focusStepKey: String?
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var lanes: [CookLane]
     @State private var globalEnd: Double
     @State private var ingredients: (main: [AggregatedIngredient], seasoning: [AggregatedIngredient])
@@ -116,6 +117,17 @@ struct CookModeView: View {
                             Label("清单 (\(store.plan.count))", systemImage: "list.bullet")
                         }
                     }
+                }
+                // 开干时手上有油、要盯着步骤，屏幕不自动锁屏（退出页面恢复系统默认）
+                .onAppear {
+                    UIApplication.shared.isIdleTimerDisabled = true
+                }
+                .onDisappear {
+                    UIApplication.shared.isIdleTimerDisabled = false
+                }
+                // 切到后台就还回系统默认，别在后台白耗电；回到前台再接上
+                .onChange(of: scenePhase) { _, phase in
+                    UIApplication.shared.isIdleTimerDisabled = (phase == .active)
                 }
                 // 点开工顺序里的卡片 → 下方步骤详情滚到可见区域
                 .onChange(of: selectedKey) { _, key in
@@ -231,7 +243,7 @@ struct CookModeView: View {
     private var ingredientCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 10) {
-                sectionHeader("🥘", "全部食材汇总", "主料 / 辅料（合并去重，份数 = 用到的菜谱数）")
+                sectionHeader("🥘", "全部食材汇总", "按菜分组：各菜独有的在前，共用的在后（色块 = 属于哪道菜）")
                 if recipes.count > 1 { recipeColorLegend }
                 ingredientList(title: "🍖 主料", items: ingredients.main)
                 ingredientList(title: "🧂 辅料", items: ingredients.seasoning)

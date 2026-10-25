@@ -86,6 +86,9 @@ final class RecipeStore: ObservableObject {
     private var deletedIds: Set<Int> = []
     private var randomOrder: [Int] = []
     private var completedSteps: [Int: [Int]] = [:]
+    private var deferredIds: Set<Int> = []
+    /// 清单里标了「下次做」的菜：还留在清单里，但进开干模式时不带入
+    @Published private(set) var deferredRecipeIds: Set<Int> = []
 
     init() {
         let fm = FileManager.default
@@ -135,6 +138,8 @@ final class RecipeStore: ObservableObject {
             plan = state.plan
             completedSteps = state.completedSteps
             completedStepKeys = Self.completedKeys(completedSteps)
+            deferredIds = Set(state.deferredIds)
+            deferredRecipeIds = deferredIds
 
             list = list.filter { !deletedIds.contains($0.id) }
             list = list.map { recipe in
@@ -154,19 +159,22 @@ final class RecipeStore: ObservableObject {
         var deletedIds: [Int]
         var plan: [PlanItem]
         var completedSteps: [Int: [Int]]
+        var deferredIds: [Int]
 
         private enum CodingKeys: String, CodingKey {
-            case updatedAt, deletedIds, plan, completedSteps
+            case updatedAt, deletedIds, plan, completedSteps, deferredIds
         }
 
         init(updatedAt: [Int: String] = [:],
              deletedIds: [Int] = [],
              plan: [PlanItem] = [],
-             completedSteps: [Int: [Int]] = [:]) {
+             completedSteps: [Int: [Int]] = [:],
+             deferredIds: [Int] = []) {
             self.updatedAt = updatedAt
             self.deletedIds = deletedIds
             self.plan = plan
             self.completedSteps = completedSteps
+            self.deferredIds = deferredIds
         }
 
         /// 老版本的 state.json 没有 completedSteps，逐字段兜底，别让整个 state 解码失败（会连 plan 一起丢）
@@ -176,7 +184,8 @@ final class RecipeStore: ObservableObject {
                 updatedAt: try c.decodeIfPresent([Int: String].self, forKey: .updatedAt) ?? [:],
                 deletedIds: try c.decodeIfPresent([Int].self, forKey: .deletedIds) ?? [],
                 plan: try c.decodeIfPresent([PlanItem].self, forKey: .plan) ?? [],
-                completedSteps: try c.decodeIfPresent([Int: [Int]].self, forKey: .completedSteps) ?? [:]
+                completedSteps: try c.decodeIfPresent([Int: [Int]].self, forKey: .completedSteps) ?? [:],
+            deferredIds: try c.decodeIfPresent([Int].self, forKey: .deferredIds) ?? []
             )
         }
     }
@@ -193,7 +202,8 @@ final class RecipeStore: ObservableObject {
             updatedAt: updatedOverrides,
             deletedIds: Array(deletedIds).sorted(),
             plan: plan,
-            completedSteps: completedSteps
+            completedSteps: completedSteps,
+            deferredIds: Array(deferredIds).sorted()
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: stateURL, options: .atomic)
@@ -297,6 +307,8 @@ final class RecipeStore: ObservableObject {
         randomOrder.removeAll { $0 == id }
         completedSteps[id] = nil
         completedStepKeys = Self.completedKeys(completedSteps)
+        deferredIds.remove(id)
+        deferredRecipeIds = deferredIds
         persistRecipes()
         saveState()
         if wasInPlan { onRecipesRemovedFromPlan?([id]) }
@@ -354,6 +366,8 @@ final class RecipeStore: ObservableObject {
         plan.removeAll { $0.id == id }
         // 菜从待做清单里移走，它的开干进度和步骤倒计时都没意义了，一并清掉
         clearCompleted(recipeId: id)
+        deferredIds.remove(id)
+        deferredRecipeIds = deferredIds
         saveState()
         onRecipesRemovedFromPlan?([id])
     }
@@ -371,8 +385,32 @@ final class RecipeStore: ObservableObject {
         plan = []
         completedSteps = [:]
         completedStepKeys = []
+        deferredIds = []
+        deferredRecipeIds = []
         saveState()
         onRecipesRemovedFromPlan?(ids)
+    }
+
+    // MARK: - 下次做
+
+    func isDeferred(id: Int) -> Bool { deferredIds.contains(id) }
+
+    /// 标记为「下次做」：留在清单里，但开干时不带入；同时清掉它这次的开干进度
+    func setDeferred(id: Int, deferred: Bool) {
+        if deferred {
+            deferredIds.insert(id)
+            completedSteps[id] = nil
+            completedStepKeys = Self.completedKeys(completedSteps)
+        } else {
+            deferredIds.remove(id)
+        }
+        deferredRecipeIds = deferredIds
+        saveState()
+    }
+
+    /// 进开干模式要带的菜谱：清单里标了「下次做」的不带入
+    func cookPlanRecipes() -> [Recipe] {
+        plan.compactMap { recipe(id: $0.id) }.filter { !deferredIds.contains($0.id) }
     }
 
     // MARK: - 开干模式的完成状态

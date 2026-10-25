@@ -9,9 +9,8 @@ struct PlanView: View {
     /// 点清单里的菜谱 → 弹出这道菜的详情
     @State private var selected: Recipe?
 
-    private var recipes: [Recipe] {
-        store.plan.compactMap { store.recipe(id: $0.id) }
-    }
+    private var recipes: [Recipe] { store.cookPlanRecipes() }
+    private var deferredCount: Int { store.deferredRecipeIds.count }
 
     var body: some View {
         NavigationStack {
@@ -30,9 +29,16 @@ struct PlanView: View {
                                 .frame(width: 56, height: 56)
 
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.title)
-                                        .font(.subheadline.weight(.semibold))
-                                        .lineLimit(2)
+                                    if store.isDeferred(id: item.id) {
+                                        Text("下次做 · \(item.title)")
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    } else {
+                                        Text(item.title)
+                                            .font(.subheadline.weight(.semibold))
+                                            .lineLimit(2)
+                                    }
                                     if !item.servings.isEmpty {
                                         Text(item.servings)
                                             .font(.caption)
@@ -55,6 +61,18 @@ struct PlanView: View {
                             .onTapGesture {
                                 selected = store.recipe(id: item.id)
                             }
+                            // 右滑：设为「下次做」（还在清单里，但开干时不带入）
+                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                Button {
+                                    store.setDeferred(id: item.id, deferred: !store.isDeferred(id: item.id))
+                                } label: {
+                                    Label(
+                                        store.isDeferred(id: item.id) ? "本次做" : "下次做",
+                                        systemImage: store.isDeferred(id: item.id) ? "flame" : "moon.zzz"
+                                    )
+                                }
+                                .tint(store.isDeferred(id: item.id) ? .orange : .indigo)
+                            }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
                                     store.removeFromPlan(id: item.id)
@@ -62,6 +80,15 @@ struct PlanView: View {
                                     Label("移出", systemImage: "trash")
                                 }
                             }
+                            // 标了「下次做」的行整体压一层灰，跟本次要做的区分开
+                            .listRowBackground(
+                                ZStack {
+                                    Color(.secondarySystemGroupedBackground)
+                                    if store.isDeferred(id: item.id) {
+                                        Color.primary.opacity(0.08)
+                                    }
+                                }
+                            )
                         }
                     }
                     .listStyle(.insetGrouped)
@@ -79,16 +106,24 @@ struct PlanView: View {
             }
             .safeAreaInset(edge: .bottom) {
                 if !store.plan.isEmpty {
-                    Button {
-                        showCookMode = true
-                    } label: {
-                        Text("🔥 开干（\(store.plan.count) 道菜）")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
+                    VStack(spacing: 4) {
+                        if deferredCount > 0 {
+                            Text("已留 \(deferredCount) 道到下次（右滑可改回本次做）")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Button {
+                            showCookMode = true
+                        } label: {
+                            Text(recipes.isEmpty ? "都安排到下次了" : "🔥 开干（\(recipes.count) 道菜）")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+                        .disabled(recipes.isEmpty)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
                     .padding()
                     .background(.bar)
                 }

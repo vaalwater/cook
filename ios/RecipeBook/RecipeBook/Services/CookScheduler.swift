@@ -177,6 +177,9 @@ enum CookScheduler {
             }
         }
 
+        // 菜在开干页里的排列顺序 → 序号，食材先按「归属组合」分组：各菜独有的在前，共用的在后
+        let rank = Dictionary(uniqueKeysWithValues: recipes.enumerated().map { ($0.element.id, $0.offset) })
+
         let convert: (AggregatedMap) -> [AggregatedIngredient] = { map in
             map.map { key, value in
                 AggregatedIngredient(
@@ -188,7 +191,13 @@ enum CookScheduler {
                 )
             }
             .sorted { a, b in
-                if a.recipes != b.recipes { return a.recipes > b.recipes }
+                let aRanks = a.recipeIds.compactMap { rank[$0] }.sorted()
+                let bRanks = b.recipeIds.compactMap { rank[$0] }.sorted()
+                // ① 用到的菜越少越靠前（A 独有 → B 独有 → 共有）
+                if aRanks.count != bRanks.count { return aRanks.count < bRanks.count }
+                // ② 同一归属组合的排在一起：按菜的顺序依次比较
+                for (x, y) in zip(aRanks, bRanks) where x != y { return x < y }
+                // ③ 归属完全一样，按名称排
                 return a.name.localizedCompare(b.name) == .orderedAscending
             }
         }
