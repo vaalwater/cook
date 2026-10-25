@@ -20,6 +20,8 @@ struct RecipeListView: View {
     @State private var focusStepKey: String?
     /// 最近搜索：数组顺序就是时间倒序（最新的在最前）
     @State private var searchHistory: [String] = []
+    /// 搜索框当前是否被点开（isfSearching 只有真正输入后才靠谱，自己监听第一响应人来判）
+    @State private var searchFieldActive = false
 
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -44,7 +46,7 @@ struct RecipeListView: View {
                 tagBar
                 ScrollView {
                     // 点开搜索框还没输入时：内容区换成最近搜索列表；一输入就回到正常结果
-                    if isSearching, q.isEmpty, !searchHistory.isEmpty {
+                    if (searchFieldActive || isSearching), q.isEmpty, !searchHistory.isEmpty {
                         recentSearchList
                     } else {
                         grid
@@ -67,6 +69,13 @@ struct RecipeListView: View {
             .toolbar { toolbarContent }
             .onAppear {
                 searchHistory = UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []
+            }
+            // 点开 / 收起搜索框（searchable 的 isSearching 不好使，直接监听键盘第一响应人）
+            .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidBeginEditingNotification)) {
+                if Self.isSearchField($0.object) { searchFieldActive = true }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidEndEditingNotification)) {
+                if Self.isSearchField($0.object) { searchFieldActive = false }
             }
             // 筛选条件一变就回到第一页（分页是累积的，不重置会带着旧页数加载一堆）
             .onChange(of: q) { _, _ in page = 1 }
@@ -244,6 +253,12 @@ struct RecipeListView: View {
             }
         }
         .padding()
+    }
+
+    /// 焦点是不是落在首页的搜索框上（占位符就是我们的 prompt）
+    private static func isSearchField(_ object: Any?) -> Bool {
+        guard let field = object as? UITextField else { return false }
+        return field.placeholder?.contains("搜索菜名") == true
     }
 
     /// 历史记录只在搜索框聚焦时显示在搜索框下方：
