@@ -43,7 +43,10 @@ struct RecipeListView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 summaryBar
-                tagBar
+                // 搜索进行中（点开搜索框或已经输入）就把标签筛选区收起来，给搜索结果腾地方
+                if !searchFieldActive && q.isEmpty {
+                    tagBar
+                }
                 ScrollView {
                     // 点开搜索框还没输入时：内容区换成最近搜索列表；一输入就回到正常结果
                     if (searchFieldActive || isSearching), q.isEmpty, !searchHistory.isEmpty {
@@ -55,6 +58,8 @@ struct RecipeListView: View {
                 }
             }
             .background(Color(.systemGroupedBackground))
+            .animation(.easeOut(duration: 0.18), value: searchFieldActive)
+            .animation(.easeOut(duration: 0.18), value: q.isEmpty)
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $q, prompt: "搜索菜名、用料、步骤…")
             // 输入过程中：搜索框下方只给匹配到的历史词

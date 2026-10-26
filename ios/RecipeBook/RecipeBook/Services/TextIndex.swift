@@ -25,10 +25,10 @@ enum TextIndex {
     }
 
     static func buildIndex(for recipe: Recipe) -> String {
+        // 作者名不进索引：不是菜谱内容，还会把「作者叫小土豆」的南瓜饼搜出来
         var parts: [String] = [
             recipe.title,
             recipe.description,
-            recipe.author,
             recipe.servings,
             recipe.tips,
         ]

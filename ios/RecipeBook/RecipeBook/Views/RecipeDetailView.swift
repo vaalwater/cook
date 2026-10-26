@@ -61,9 +61,8 @@ struct RecipeDetailView: View {
                 .font(.title2.weight(.bold))
 
             FlowLayout(spacing: 6) {
-                if !recipe.author.isEmpty { metaChip("作者：\(recipe.author)") }
+                // 作者名不展示：它既不是菜谱内容，混进搜索还会串味（作者叫「小土豆」→ 搜土豆命中南瓜饼）
                 if !recipe.servings.isEmpty { metaChip(recipe.servings) }
-                if !recipe.madeCount.isEmpty { metaChip("\(recipe.madeCount) 人做过") }
                 if !recipe.favCount.isEmpty { metaChip("\(recipe.favCount) 收藏") }
                 metaChip("抓取于 \(Format.dateTime(recipe.collectedAt))")
             }
