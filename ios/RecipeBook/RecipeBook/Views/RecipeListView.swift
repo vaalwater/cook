@@ -1,7 +1,10 @@
 import SwiftUI
+import Speech
+import AVFoundation
+import UIKit
 
 struct RecipeListView: View {
-    @Environment(\.isSearching) private var isSearching
+    @FocusState private var searchFocused: Bool
     @EnvironmentObject private var store: RecipeStore
     @EnvironmentObject private var timers: CookTimerManager
 
@@ -20,8 +23,12 @@ struct RecipeListView: View {
     @State private var focusStepKey: String?
     /// 最近搜索：数组顺序就是时间倒序（最新的在最前）
     @State private var searchHistory: [String] = []
-    /// 搜索框当前是否被点开（isfSearching 只有真正输入后才靠谱，自己监听第一响应人来判）
-    @State private var searchFieldActive = false
+    /// 语音输入状态
+    @StateObject private var speech = SpeechRecognizer()
+    @State private var showSpeechDenied = false
+    /// 是否正按住麦克风：按住期间锁定顶部栏为“聚焦/宽”外观，避免 TextField 因点到麦克风而失焦、
+    /// 导致布局在宽窄间抖动、松手时 onEnded 打不到麦克风而卡在录音。
+    @State private var pressingMic = false
 
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -42,45 +49,43 @@ struct RecipeListView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                summaryBar
-                // 搜索进行中（点开搜索框或已经输入）就把标签筛选区收起来，给搜索结果腾地方
-                if !searchFieldActive && q.isEmpty {
-                    tagBar
-                }
-                ScrollView {
-                    // 点开搜索框还没输入时：内容区换成最近搜索列表；一输入就回到正常结果
-                    if (searchFieldActive || isSearching), q.isEmpty, !searchHistory.isEmpty {
-                        recentSearchList
-                    } else {
-                        grid
-                        footerView
+                topBar
+                // 搜索条下方的内容区（麦克风在上面的 topBar 里，结构上不会被下面的手势影响）
+                VStack(spacing: 0) {
+                    summaryBar
+                    // 搜索进行中（点开搜索框或已经输入）就把标签筛选区收起来，给搜索结果腾地方
+                    if !searchFocused && q.isEmpty {
+                        tagBar
+                    }
+                    ScrollView {
+                        // 点开搜索框还没输入时：内容区换成最近搜索列表；一输入就回到正常结果
+                        if searchFocused, q.isEmpty, !searchHistory.isEmpty {
+                            recentSearchList
+                        } else {
+                            grid
+                            footerView
+                        }
                     }
                 }
+                // 搜索框聚焦时：点内容区任意处或滚动即失焦（搜索条缩回、文字保留）。
+                // 挂在 ScrollView 的父视图上用 simultaneousGesture：空白/滚动处能触发失焦，
+                // 又不会像覆盖层那样挡住下方按钮——最近搜索词、菜谱卡片等仍可正常点按（同时失焦）。
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onEnded { _ in if searchFocused { searchFocused = false } }
+                )
             }
             .background(Color(.systemGroupedBackground))
-            .animation(.easeOut(duration: 0.18), value: searchFieldActive)
+            .animation(.easeOut(duration: 0.18), value: searchFocused)
             .animation(.easeOut(duration: 0.18), value: q.isEmpty)
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $q, prompt: "搜索菜名、用料、步骤…")
-            // 输入过程中：搜索框下方只给匹配到的历史词
-            .searchSuggestions {
-                if !q.isEmpty {
-                    ForEach(historySuggestions(q), id: \.self) { term in
-                        Text(term).searchCompletion(term)
-                    }
-                }
-            }
-            .onSubmit(of: .search) { rememberSearch(q) }
-            .toolbar { toolbarContent }
+            .navigationBarHidden(true)
             .onAppear {
                 searchHistory = UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []
             }
-            // 点开 / 收起搜索框（searchable 的 isSearching 不好使，直接监听键盘第一响应人）
-            .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidBeginEditingNotification)) {
-                if Self.isSearchField($0.object) { searchFieldActive = true }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidEndEditingNotification)) {
-                if Self.isSearchField($0.object) { searchFieldActive = false }
+            // 语音识别的实时文字直接填进搜索框；权限被拒时弹提示
+            .onReceive(speech.$transcript) { q = $0 }
+            .onReceive(speech.$authorizationDenied) { denied in
+                if denied { showSpeechDenied = true }
             }
             // 筛选条件一变就回到第一页（分页是累积的，不重置会带着旧页数加载一堆）
             .onChange(of: q) { _, _ in page = 1 }
@@ -106,6 +111,16 @@ struct RecipeListView: View {
                 RecipeDetailView(recipe: recipe) { action in
                     handle(action, recipe: recipe)
                 }
+            }
+            .alert("无法使用语音输入", isPresented: $showSpeechDenied) {
+                Button("去设置") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("请在设置中允许「菜谱小本本」使用语音识别和麦克风。")
             }
         }
     }
@@ -260,20 +275,6 @@ struct RecipeListView: View {
         .padding()
     }
 
-    /// 焦点是不是落在首页的搜索框上（占位符就是我们的 prompt）
-    private static func isSearchField(_ object: Any?) -> Bool {
-        guard let field = object as? UITextField else { return false }
-        return field.placeholder?.contains("搜索菜名") == true
-    }
-
-    /// 历史记录只在搜索框聚焦时显示在搜索框下方：
-    /// 没输入文字 → 全量按时间倒序；有输入 → 只显示包含输入的那些
-    private func historySuggestions(_ text: String) -> [String] {
-        guard !searchHistory.isEmpty else { return [] }
-        guard !text.isEmpty else { return searchHistory }
-        return searchHistory.filter { $0.localizedStandardContains(text) }
-    }
-
     /// 记一条搜索词：自动去重、插到最前、超出上限的丢掉（数组顺序 = 时间倒序）
     private func rememberSearch(_ text: String) {
         let term = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -338,22 +339,43 @@ struct RecipeListView: View {
 
     // MARK: - 工具栏
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigationBarLeading) {
-            Image("BrandMark")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 32, height: 32)
-                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5)
-                )
-        }
+    // MARK: - 顶部栏
 
-        // 有倒计时：绿色圆标中间显示个数；到点时转红
-        ToolbarItem(placement: .navigationBarTrailing) {
+    /// 自绘顶部栏：未聚焦 = [App图标][搜索框][定时器…]，搜索框夹在中间；
+    /// 聚焦（或正按住麦克风）时隐藏两侧图标 → 搜索框（maxWidth 撑开）拉满整行。
+    private var topBar: some View {
+        let wide = searchFocused || pressingMic
+        return HStack(spacing: 8) {
+            if !wide { leadingBrand }
+            searchBar
+                .frame(maxWidth: wide ? .infinity : UIScreen.main.bounds.width * 0.46)
+            if !wide {
+                Spacer(minLength: 0)
+                trailingButtons
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(Color(.systemGroupedBackground))
+        .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+    }
+
+    private var leadingBrand: some View {
+        Image("BrandMark")
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 32, height: 32)
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5)
+            )
+    }
+
+    /// 右侧一组图标（定时器 / 导入 / 排序），间距收紧
+    private var trailingButtons: some View {
+        HStack(spacing: 16) {
             Button {
                 showTimers = true
             } label: {
@@ -361,18 +383,16 @@ struct RecipeListView: View {
                     count: timers.timers.count,
                     hasFired: timers.timers.contains { $0.fired }
                 )
+                .imageScale(.large)
             }
-        }
 
-        ToolbarItem(placement: .navigationBarTrailing) {
             Button {
                 showScrape = true
             } label: {
                 Image(systemName: "arrow.down.doc")
+                    .imageScale(.large)
             }
-        }
 
-        ToolbarItem(placement: .navigationBarTrailing) {
             Menu {
                 Picker("排序", selection: $sort) {
                     ForEach(SortKey.allCases) { key in
@@ -413,7 +433,98 @@ struct RecipeListView: View {
                 }
             } label: {
                 Image(systemName: "arrow.up.arrow.down.circle")
+                    .imageScale(.large)
             }
+        }
+    }
+
+    /// 自绘搜索栏：搜索框右侧放麦克风，按住说话、松手完成（语音转文字直接进搜索词）
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.body)
+                .foregroundStyle(.secondary)
+
+            TextField(speech.isRecording ? "" : "搜索菜名、用料、步骤…", text: $q)
+                .onSubmit { rememberSearch(q) }
+                .textFieldStyle(.plain)
+                .font(.body)
+                .focused($searchFocused)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+
+            if !q.isEmpty {
+                Button {
+                    q = ""
+                    page = 1
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            micButton
+        }
+        .padding(.vertical, 11)
+        .padding(.horizontal, 12)
+        .background(
+            ZStack {
+                Capsule().fill(speech.isRecording ? Color.orange.opacity(0.18) : Color(.secondarySystemBackground))
+                // 录音时整条搜索框铺一层跳动的声波底纹（颜色加深）
+                if speech.isRecording {
+                    WaveformBackdrop()
+                        .clipShape(Capsule())
+                }
+            }
+        )
+    }
+
+    /// 麦克风按钮：按住开始识别（图标变红 + 放大），松手结束并把识别结果留在搜索框
+    private var micButton: some View {
+        Image(systemName: speech.isRecording ? "waveform" : "mic")
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(speech.isRecording ? .red : .secondary)
+            .frame(width: 30, height: 30)
+            .scaleEffect(speech.isRecording ? 1.15 : 1)
+            .animation(.easeInOut(duration: 0.15), value: speech.isRecording)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        pressingMic = true
+                        searchFocused = true
+                        speech.start(with: q)
+                    }
+                    .onEnded { _ in
+                        pressingMic = false
+                        speech.stop()
+                        searchFocused = true
+                    }
+            )
+    }
+
+    /// 录音时的搜索框底纹：一排上下跳动的竖条，做出"声波"质感（颜色加深，更明显）
+    private struct WaveformBackdrop: View {
+        @State private var animate = false
+        private let heights: [CGFloat] = [8, 14, 6, 16, 10, 7, 13, 9, 15, 6, 12, 8, 14, 7, 11, 9, 13, 6, 15, 8]
+        var body: some View {
+            HStack(spacing: 3) {
+                ForEach(Array(heights.enumerated()), id: \.offset) { i, h in
+                    Capsule()
+                        .fill(Color.orange)
+                        .frame(width: 2.5, height: h)
+                        .scaleEffect(y: animate ? 1 : 0.45, anchor: .center)
+                        .animation(
+                            .easeInOut(duration: 0.45)
+                                .repeatForever(autoreverses: true)
+                                .delay(Double(i) * 0.04),
+                            value: animate
+                        )
+                }
+            }
+            .opacity(0.6)
+            .onAppear { animate = true }
         }
     }
 
@@ -543,5 +654,159 @@ private struct RecipeCard: View {
             .font(.caption2)
             .foregroundStyle(color)
             .lineLimit(1)
+    }
+}
+
+/// 按住说话、松手结束的语音识别：识别到的文字实时通过 `transcript` 暴露，视图直接填进搜索框。
+///
+/// 关键点（参考 chemiistryApp 的语音实现）：
+/// ① 松手后只调用 `request.endAudio()`，把麦克风关掉，但**不要立刻 cancel 任务**——
+///    要让识别引擎把"最终结果"返回来（handler 里 `isFinal` 时再收尾），否则只拿到最后一个
+///    中间结果（比如"红烧肉"只识别出"红"）。
+/// ② 万一最终结果迟迟不来（网络/无语音），用兜底定时器强制收尾。
+private final class SpeechRecognizer: ObservableObject {
+    @Published var isRecording = false
+    @Published var transcript = ""
+    @Published var authorizationDenied = false
+
+    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh_CN"))
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+    private let engine = AVAudioEngine()
+    /// 松手后的兜底收尾定时器：最终结果没回来时强制结束
+    private var finishItem: DispatchWorkItem?
+    /// 开始录音前搜索框里已有的文字：语音识别结果要**追加**到它后面，而不是替换
+    private var prefix = ""
+
+    /// 申请语音识别 + 麦克风权限（两者都授权才算通过）
+    private func ensurePermission(completion: @escaping (Bool) -> Void) {
+        let group = DispatchGroup()
+        var speechOK = false
+        var micOK = false
+
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            speechOK = true
+        case .notDetermined:
+            group.enter()
+            SFSpeechRecognizer.requestAuthorization { status in
+                speechOK = status == .authorized
+                group.leave()
+            }
+        default:
+            speechOK = false
+        }
+
+        let session = AVAudioSession.sharedInstance()
+        switch session.recordPermission {
+        case .granted:
+            micOK = true
+        case .undetermined:
+            group.enter()
+            session.requestRecordPermission { granted in
+                micOK = granted
+                group.leave()
+            }
+        default:
+            micOK = false
+        }
+
+        group.notify(queue: .main) {
+            let ok = speechOK && micOK && self.recognizer != nil
+            if !ok { self.authorizationDenied = true }
+            completion(ok)
+        }
+    }
+
+    /// base：开始录音前搜索框里已有的文字。识别结果会追加在它后面。
+    func start(with base: String) {
+        guard !isRecording else { return }
+        prefix = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        ensurePermission { [weak self] ok in
+            guard ok else { return }
+            self?.beginCapture()
+        }
+    }
+
+    private func beginCapture() {
+        // 收掉上一次可能残留的收尾定时器
+        finishItem?.cancel()
+        finishItem = nil
+
+        task?.cancel(); task = nil
+        if engine.isRunning { engine.stop() }
+        engine.inputNode.removeTap(onBus: 0)
+
+        let session = AVAudioSession.sharedInstance()
+        do {
+            // playAndRecord 比 record 在语音识别场景下兼容性更好；defaultToSpeaker 避免录音时外放被压
+            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .duckOthers])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            authorizationDenied = true
+            return
+        }
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        // 关掉"仅设备端"，中文走苹果服务端识别更准
+        request.requiresOnDeviceRecognition = false
+        self.request = request
+
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            self?.request?.append(buffer)
+        }
+
+        engine.prepare()
+        do { try engine.start() } catch {
+            cleanup()
+            authorizationDenied = true
+            return
+        }
+
+        transcript = prefix
+        isRecording = true
+
+        task = recognizer?.recognitionTask(with: request) { [weak self] result, error in
+            guard let self, self.isRecording else { return }
+            if let result {
+                // 边听边出字：实时填进搜索框；已有文字作为前缀，识别结果追加在后面而非替换
+                let text = result.bestTranscription.formattedString
+                let pre = self.prefix.isEmpty ? "" : self.prefix + " "
+                self.transcript = pre + text
+                if result.isFinal {
+                    self.cleanup()
+                }
+            } else if error != nil {
+                // 无语音 / 网络不通等：收尾（transcript 保留已识别到的部分）
+                self.cleanup()
+            }
+        }
+    }
+
+    /// 松手：关掉麦克风，等识别把"修正后的完整结果"交上来；兜底 1.2s 强制收尾
+    func stop() {
+        guard isRecording else { return }
+        request?.endAudio()
+        finishItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.cleanup() }
+        finishItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: item)
+    }
+
+    /// 停止音频管线、撤销 AVAudioSession（幂等，可重复调用）。
+    /// 先置 isRecording=false，避免 cancel 触发的 error 回调再次进入 handler 造成重入。
+    private func cleanup() {
+        finishItem?.cancel()
+        finishItem = nil
+        isRecording = false
+        if engine.isRunning { engine.stop() }
+        engine.inputNode.removeTap(onBus: 0)
+        task?.cancel()
+        task = nil
+        request = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }

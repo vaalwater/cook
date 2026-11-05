@@ -33,6 +33,17 @@ struct PlanItem: Codable, Hashable, Identifiable {
     var addedAt: String
 }
 
+/// 一道菜在「待做清单」里被「完成」时记一条：完成时间 + 从开干到完成的用时（秒）
+struct CookCompletion: Codable, Hashable, Identifiable {
+    var id: String
+    var recipeId: Int
+    var title: String
+    /// 完成时刻（epoch seconds）
+    var completedAt: Double
+    /// 用时（秒）：点击「开干」到点击「完成」的间隔，没开干则为 0
+    var duration: Double
+}
+
 struct RecipeQuery {
     var q: String = ""
     var tag: String = ""
@@ -72,6 +83,8 @@ final class RecipeStore: ObservableObject {
     @Published var plan: [PlanItem] = []
     /// 开干模式里已完成的步骤：key = "\(recipeId)-\(stepIndex)"，随 state.json 一起落盘
     @Published private(set) var completedStepKeys: Set<String> = []
+    /// 完成记录（成就页用）：每道菜从待做清单「完成」时一条
+    @Published private(set) var completions: [CookCompletion] = []
     @Published var errorMessage: String?
 
     private(set) var manifest: SeedManifest?
@@ -89,6 +102,10 @@ final class RecipeStore: ObservableObject {
     private var deferredIds: Set<Int> = []
     /// 清单里标了「下次做」的菜：还留在清单里，但进开干模式时不带入
     @Published private(set) var deferredRecipeIds: Set<Int> = []
+    /// 「开干」起始时间（epoch seconds）：按菜记录，成就页用来算「从开干到完成」的用时
+    private var cookStartedAt: [Int: Double] = [:]
+    /// 上次从 App 内置种子导入的版本（manifest.exportedAt）；变化时自动重导入内置菜
+    private var seedVersion: String = ""
 
     init() {
         let fm = FileManager.default
@@ -113,26 +130,42 @@ final class RecipeStore: ObservableObject {
     // MARK: - 加载 / 保存
 
     private func load() {
-        // 首次启动：把 App 内置的种子数据搬到沙盒，之后读写都走沙盒
-        if !FileManager.default.fileExists(atPath: recipesURL.path) {
+        // 先读 bundle 的 manifest，拿到本次内置种子的版本号（exportedAt）
+        if let manifestURL = Bundle.main.url(forResource: "manifest", withExtension: "json", subdirectory: "Seed"),
+           let manifestData = try? Data(contentsOf: manifestURL) {
+            manifest = try? JSONDecoder().decode(SeedManifest.self, from: manifestData)
+        }
+        let bundleSeed: String? = {
+            guard let e = manifest?.exportedAt, !e.isEmpty else { return nil }
+            return e
+        }()
+
+        // 读取用户状态（含上次导入的种子版本）
+        var state = loadState()
+        seedVersion = state.seedVersion
+
+        let sandboxExists = FileManager.default.fileExists(atPath: recipesURL.path)
+
+        if !sandboxExists {
+            // 首次启动：把 App 内置的种子数据搬到沙盒
             guard let seed = Bundle.main.url(forResource: "recipes", withExtension: "json", subdirectory: "Seed"),
                   let data = try? Data(contentsOf: seed) else {
                 errorMessage = "App 里没有内置菜谱数据。"
                 return
             }
             try? data.write(to: recipesURL, options: .atomic)
-        }
-
-        if let manifestURL = Bundle.main.url(forResource: "manifest", withExtension: "json", subdirectory: "Seed"),
-           let manifestData = try? Data(contentsOf: manifestURL) {
-            manifest = try? JSONDecoder().decode(SeedManifest.self, from: manifestData)
+            state.seedVersion = bundleSeed ?? ""
+            saveState(state)
+        } else if let bundleSeed, bundleSeed != state.seedVersion {
+            // 内置种子版本变化：自动重导入（内置菜用新版覆盖，保留用户新增的菜）
+            reimportBuiltIn(bundleSeed: bundleSeed, state: &state)
+            saveState(state)
         }
 
         do {
             let data = try Data(contentsOf: recipesURL)
             var list = try JSONDecoder().decode([Recipe].self, from: data)
 
-            let state = loadState()
             deletedIds = Set(state.deletedIds)
             updatedOverrides = state.updatedAt
             plan = state.plan
@@ -140,6 +173,8 @@ final class RecipeStore: ObservableObject {
             completedStepKeys = Self.completedKeys(completedSteps)
             deferredIds = Set(state.deferredIds)
             deferredRecipeIds = deferredIds
+            completions = state.completions
+            cookStartedAt = state.cookStartedAt
 
             list = list.filter { !deletedIds.contains($0.id) }
             list = list.map { recipe in
@@ -154,30 +189,61 @@ final class RecipeStore: ObservableObject {
         }
     }
 
+    /// 把 App 内置种子合并进沙盒：内置菜用 bundle 最新版覆盖，用户新增的菜（id 不在内置集合）原样保留。
+    /// 用户数据（删除 / 收藏 / 笔记等）由 state.json 单独保存，这里不动。
+    private func reimportBuiltIn(bundleSeed: String, state: inout PersistedState) {
+        guard let seedURL = Bundle.main.url(forResource: "recipes", withExtension: "json", subdirectory: "Seed"),
+              let bundleData = try? Data(contentsOf: seedURL),
+              let bundleRecipes = try? JSONDecoder().decode([Recipe].self, from: bundleData) else { return }
+        let bundleIds = Set(bundleRecipes.map { $0.id })
+
+        var sandboxRecipes: [Recipe] = []
+        if let data = try? Data(contentsOf: recipesURL),
+           let cur = try? JSONDecoder().decode([Recipe].self, from: data) {
+            sandboxRecipes = cur
+        }
+        // 仅保留用户新增的菜（id 不在内置集合内）；其余内置菜用 bundle 新版覆盖
+        let userAdded = sandboxRecipes.filter { !bundleIds.contains($0.id) }
+        let merged = bundleRecipes + userAdded
+        if let data = try? JSONEncoder().encode(merged) {
+            try? data.write(to: recipesURL, options: .atomic)
+        }
+        state.seedVersion = bundleSeed
+    }
+
     private struct PersistedState: Codable {
         var updatedAt: [Int: String]
         var deletedIds: [Int]
         var plan: [PlanItem]
         var completedSteps: [Int: [Int]]
         var deferredIds: [Int]
+        var completions: [CookCompletion]
+        var cookStartedAt: [Int: Double]
+        var seedVersion: String
 
         private enum CodingKeys: String, CodingKey {
-            case updatedAt, deletedIds, plan, completedSteps, deferredIds
+            case updatedAt, deletedIds, plan, completedSteps, deferredIds, completions, cookStartedAt, seedVersion
         }
 
         init(updatedAt: [Int: String] = [:],
              deletedIds: [Int] = [],
              plan: [PlanItem] = [],
              completedSteps: [Int: [Int]] = [:],
-             deferredIds: [Int] = []) {
+             deferredIds: [Int] = [],
+             completions: [CookCompletion] = [],
+             cookStartedAt: [Int: Double] = [:],
+             seedVersion: String = "") {
             self.updatedAt = updatedAt
             self.deletedIds = deletedIds
             self.plan = plan
             self.completedSteps = completedSteps
             self.deferredIds = deferredIds
+            self.completions = completions
+            self.cookStartedAt = cookStartedAt
+            self.seedVersion = seedVersion
         }
 
-        /// 老版本的 state.json 没有 completedSteps，逐字段兜底，别让整个 state 解码失败（会连 plan 一起丢）
+        /// 老版本的 state.json 没有 completedSteps / completions / cookStartedAt / seedVersion，逐字段兜底，别让整个 state 解码失败（会连 plan 一起丢）
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             self.init(
@@ -185,7 +251,10 @@ final class RecipeStore: ObservableObject {
                 deletedIds: try c.decodeIfPresent([Int].self, forKey: .deletedIds) ?? [],
                 plan: try c.decodeIfPresent([PlanItem].self, forKey: .plan) ?? [],
                 completedSteps: try c.decodeIfPresent([Int: [Int]].self, forKey: .completedSteps) ?? [:],
-            deferredIds: try c.decodeIfPresent([Int].self, forKey: .deferredIds) ?? []
+                deferredIds: try c.decodeIfPresent([Int].self, forKey: .deferredIds) ?? [],
+                completions: try c.decodeIfPresent([CookCompletion].self, forKey: .completions) ?? [],
+                cookStartedAt: try c.decodeIfPresent([Int: Double].self, forKey: .cookStartedAt) ?? [:],
+                seedVersion: try c.decodeIfPresent(String.self, forKey: .seedVersion) ?? ""
             )
         }
     }
@@ -203,8 +272,17 @@ final class RecipeStore: ObservableObject {
             deletedIds: Array(deletedIds).sorted(),
             plan: plan,
             completedSteps: completedSteps,
-            deferredIds: Array(deferredIds).sorted()
+            deferredIds: Array(deferredIds).sorted(),
+            completions: completions,
+            cookStartedAt: cookStartedAt,
+            seedVersion: seedVersion
         )
+        guard let data = try? JSONEncoder().encode(state) else { return }
+        try? data.write(to: stateURL, options: .atomic)
+    }
+
+    /// 直接持久化给定的 state（用于 load 阶段，此时实例属性尚未从 state 还原）
+    private func saveState(_ state: PersistedState) {
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: stateURL, options: .atomic)
     }
@@ -309,6 +387,7 @@ final class RecipeStore: ObservableObject {
         completedStepKeys = Self.completedKeys(completedSteps)
         deferredIds.remove(id)
         deferredRecipeIds = deferredIds
+        cookStartedAt.removeValue(forKey: id)
         persistRecipes()
         saveState()
         if wasInPlan { onRecipesRemovedFromPlan?([id]) }
@@ -368,6 +447,7 @@ final class RecipeStore: ObservableObject {
         clearCompleted(recipeId: id)
         deferredIds.remove(id)
         deferredRecipeIds = deferredIds
+        cookStartedAt.removeValue(forKey: id)
         saveState()
         onRecipesRemovedFromPlan?([id])
     }
@@ -387,6 +467,7 @@ final class RecipeStore: ObservableObject {
         completedStepKeys = []
         deferredIds = []
         deferredRecipeIds = []
+        cookStartedAt = [:]
         saveState()
         onRecipesRemovedFromPlan?(ids)
     }
@@ -411,6 +492,36 @@ final class RecipeStore: ObservableObject {
     /// 进开干模式要带的菜谱：清单里标了「下次做」的不带入
     func cookPlanRecipes() -> [Recipe] {
         plan.compactMap { recipe(id: $0.id) }.filter { !deferredIds.contains($0.id) }
+    }
+
+    /// 点「开干」时调用：给这些菜记一个起始时间（只记一次，重进开干模式不重置），成就页用来算用时
+    func beginCooking(recipeIds: [Int]) {
+        let now = Date().timeIntervalSince1970
+        for id in recipeIds where cookStartedAt[id] == nil {
+            cookStartedAt[id] = now
+        }
+    }
+
+    /// 待做清单里点「完成」：记一条完成记录（完成时间 + 从开干到完成的用时），然后从清单移除
+    func completeRecipe(id: Int) {
+        guard let item = plan.first(where: { $0.id == id }) else { return }
+        let now = Date().timeIntervalSince1970
+        let duration = cookStartedAt[id].map { max(0, now - $0) } ?? 0
+        let completion = CookCompletion(
+            id: UUID().uuidString,
+            recipeId: id,
+            title: item.title,
+            completedAt: now,
+            duration: duration
+        )
+        completions.append(completion)
+        cookStartedAt.removeValue(forKey: id)
+        plan.removeAll { $0.id == id }
+        clearCompleted(recipeId: id)
+        deferredIds.remove(id)
+        deferredRecipeIds = deferredIds
+        saveState()
+        onRecipesRemovedFromPlan?([id])
     }
 
     // MARK: - 开干模式的完成状态

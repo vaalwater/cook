@@ -25,7 +25,7 @@
 
 ## 2. 环境与构建
 
-- Xcode 16+，**部署目标 iOS 17.0**，Bundle ID `com.cook.recipebook`，显示名 **菜谱小本本**。
+- Xcode 16+，**部署目标 iOS 17.0**，Bundle ID `com.rongweiwei.myrecipes`，显示名 **菜谱小本本**。
 - 没有共享 scheme（scheme 在 `xcuserdata/`，已被 gitignore）。命令行构建用：
 
 ```bash

@@ -73,6 +73,8 @@ final class CookTimerManager: ObservableObject {
     @Published private(set) var timers: [CookTimer] = []
     /// 刚刚到点的那条，UI 拿到后弹提示
     @Published var lastFired: CookTimer?
+    /// 通知授权状态：nil = 还不知道，true = 已授权，false = 被拒绝（锁屏后到点不会响铃）
+    @Published var notificationAuthorized: Bool? = nil
 
     private var ticker: Timer?
     private let synth = AVSpeechSynthesizer()
@@ -86,6 +88,7 @@ final class CookTimerManager: ObservableObject {
     init() {
         load()
         reconcileAfterLaunch()
+        refreshNotificationAuthorization()
     }
 
     // MARK: - 增删改
@@ -245,6 +248,12 @@ final class CookTimerManager: ObservableObject {
         }
         if needsSave { save() }
         stopTickerIfIdle()
+        // App 被杀后重启：给仍在跑的计时重新排「到点通知」，否则锁屏 / 后台时到点不会响铃
+        for index in timers.indices where timers[index].isRunning {
+            if let end = timers[index].endsAt, end.timeIntervalSinceNow > 0 {
+                scheduleNotification(timers[index])
+            }
+        }
     }
 
     /// App 被杀掉期间到点的：静默标记，不再补响铃，避免回来时一堆乱响
@@ -326,10 +335,27 @@ final class CookTimerManager: ObservableObject {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
     }
 
-    private func requestNotificationPermissionIfNeeded() {
+    /// 读取当前通知授权状态，供 UI 判断要不要提示用户去开权限（否则锁屏后到点不响铃）
+    func refreshNotificationAuthorization() {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let granted: Bool? = {
+                switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral: return true
+                case .denied: return false
+                case .notDetermined: return nil
+                @unknown default: return nil
+                }
+            }()
+            DispatchQueue.main.async { self.notificationAuthorized = granted }
+        }
+    }
+
+    func requestNotificationPermissionIfNeeded() {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             guard settings.authorizationStatus == .notDetermined else { return }
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
+                self.refreshNotificationAuthorization()
+            }
         }
     }
 

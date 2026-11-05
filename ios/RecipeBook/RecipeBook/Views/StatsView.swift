@@ -9,6 +9,7 @@ struct StatsView: View {
     @State private var showImporter = false
     @State private var backupDocument: RecipeBackupDocument?
     @State private var syncMessage: String?
+    @State private var showPrivacy = false
 
     private var defaultFilename: String {
         let formatter = DateFormatter()
@@ -100,6 +101,14 @@ struct StatsView: View {
                             .foregroundStyle(.red)
                     }
                 }
+
+                Section("关于") {
+                    Button {
+                        showPrivacy = true
+                    } label: {
+                        Label("隐私政策", systemImage: "hand.raised")
+                    }
+                }
             }
             .listStyle(.insetGrouped)
             .navigationBarTitleDisplayMode(.inline)
@@ -143,6 +152,9 @@ struct StatsView: View {
                 case .failure(let error):
                     syncMessage = "选择文件失败：\(error.localizedDescription)"
                 }
+            }
+            .sheet(isPresented: $showPrivacy) {
+                PrivacyPolicyView()
             }
         }
     }

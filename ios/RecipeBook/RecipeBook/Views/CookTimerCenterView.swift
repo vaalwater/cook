@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 顶部倒计时入口：没有倒计时时是普通时钟图标，有倒计时时变成「绿底 + 中间个数」的徽标（有已到点的转红）
 struct TimerToolbarLabel: View {
@@ -33,6 +34,9 @@ struct CookTimerCenterView: View {
     @EnvironmentObject private var timers: CookTimerManager
     @Environment(\.dismiss) private var dismiss
 
+    /// 跳转系统闹钟失败（URL scheme 不被识别）时，弹出提示引导用户手动添加
+    @State private var showAlarmHint = false
+
     /// 点标题回调（recipeId + stepIndex）。从开干页进来时传，用来关掉弹窗并聚焦到对应步骤卡片；
     /// 从别处进来传 nil，标题就是普通文字。
     var onFocusStep: ((Int, Int) -> Void)? = nil
@@ -40,6 +44,9 @@ struct CookTimerCenterView: View {
     var body: some View {
         NavigationStack {
             Group {
+                if timers.notificationAuthorized == false {
+                    notificationHint
+                }
                 if timers.timers.isEmpty {
                     VStack(spacing: 10) {
                         Image(systemName: "timer")
@@ -76,8 +83,54 @@ struct CookTimerCenterView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") { dismiss() }
                 }
+                // 系统闹钟入口：放在标题右侧（弹层右上角），跳到 时钟 App 闹钟页，让用户手动建
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        openClockAlarm()
+                    } label: {
+                        Image(systemName: "alarm.fill")
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                }
+            }
+            .alert("请手动添加系统闹钟", isPresented: $showAlarmHint) {
+                Button("知道了", role: .cancel) {}
+            } message: {
+                Text("当前系统暂不支持直接跳转，请在「时钟」App 里手动添加闹钟。")
             }
         }
+    }
+
+    /// 通知被拒时提示：锁屏后到点不会响铃，引导去系统设置开启
+    private var notificationHint: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "bell.slash.fill")
+                .foregroundStyle(.orange)
+                .font(.title3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("锁屏后计时结束不会响铃")
+                    .font(.subheadline.weight(.semibold))
+                Text("后台提醒依赖通知权限，去设置开启即可。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            Button {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                Text("去设置").font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.orange)
+        }
+        .padding(12)
+        .background(
+            Color.orange.opacity(0.12),
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .padding(.horizontal, 4)
     }
 
     private func timerRow(_ timer: CookTimer) -> some View {
@@ -135,6 +188,14 @@ struct CookTimerCenterView: View {
             }
         }
         .padding(.vertical, 6)
+    }
+
+    /// 跳到系统「时钟」App 的闹钟页（只是入口）。无法在代码里直接建系统闹钟，只能让用户去手动加。
+    private func openClockAlarm() {
+        let url = URL(string: "clock-alarm://")!
+        UIApplication.shared.open(url) { success in
+            if !success { showAlarmHint = true }
+        }
     }
 
     /// ±N 分钟（调整的是总时长 = 剩余时长）

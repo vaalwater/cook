@@ -32,9 +32,11 @@
 		4A0000000000000000000026 /* StepText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0000000000000000000017 /* StepText.swift */; };
 		4A0000000000000000000027 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0000000000000000000018 /* LoginView.swift */; };
 		4A0000000000000000000028 /* ScrapeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0000000000000000000019 /* ScrapeView.swift */; };
-		4A0000000000000000000030 /* parse.js in Resources */ = {isa = PBXBuildFile; fileRef = 3A000000000000000000001F /* parse.js */; };
+		4A0000000000000000000030 /* RecipeBook/Resources/parse.js in Resources */ = {isa = PBXBuildFile; fileRef = 3A000000000000000000001F /* RecipeBook/Resources/parse.js */; };
 		4A0000000000000000000031 /* CookTimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0000000000000000000020 /* CookTimer.swift */; };
 		4A0000000000000000000032 /* CookTimerCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0000000000000000000021 /* CookTimerCenterView.swift */; };
+		4A00000000000000000000E1 /* PrivacyPolicyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A00000000000000000000E1 /* PrivacyPolicyView.swift */; };
+		4A00000000000000000000A1 /* AchievementsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A00000000000000000000A2 /* AchievementsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -64,9 +66,11 @@
 		3A0000000000000000000017 /* StepText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepText.swift; sourceTree = "<group>"; };
 		3A0000000000000000000018 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		3A0000000000000000000019 /* ScrapeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeView.swift; sourceTree = "<group>"; };
+		3A000000000000000000001F /* RecipeBook/Resources/parse.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = RecipeBook/Resources/parse.js; sourceTree = "<group>"; };
 		3A0000000000000000000020 /* CookTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CookTimer.swift; sourceTree = "<group>"; };
 		3A0000000000000000000021 /* CookTimerCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CookTimerCenterView.swift; sourceTree = "<group>"; };
-		3A000000000000000000001F /* parse.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = RecipeBook/Resources/parse.js; sourceTree = "<group>"; };
+		3A00000000000000000000E1 /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
+		3A00000000000000000000A2 /* AchievementsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AchievementsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -83,12 +87,13 @@
 		1A0000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
-				2A0000000000000000000001 /* App */,
-				2A0000000000000000000002 /* Models */,
-				2A0000000000000000000003 /* Services */,
-				2A0000000000000000000004 /* Views */,
-				2A0000000000000000000005 /* Resources */,
+				2A0000000000000000000001 /* RecipeBook/App */,
+				2A0000000000000000000002 /* RecipeBook/Models */,
+				2A0000000000000000000003 /* RecipeBook/Services */,
+				2A0000000000000000000004 /* RecipeBook/Views */,
+				2A0000000000000000000005 /* RecipeBook/Resources */,
 				1A0000000000000000000003 /* Products */,
+				39FE309030943DDA00B03DE3 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -100,7 +105,7 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		2A0000000000000000000001 /* App */ = {
+		2A0000000000000000000001 /* RecipeBook/App */ = {
 			isa = PBXGroup;
 			children = (
 				3A0000000000000000000001 /* RecipeBookApp.swift */,
@@ -108,7 +113,7 @@
 			path = RecipeBook/App;
 			sourceTree = "<group>";
 		};
-		2A0000000000000000000002 /* Models */ = {
+		2A0000000000000000000002 /* RecipeBook/Models */ = {
 			isa = PBXGroup;
 			children = (
 				3A0000000000000000000002 /* Recipe.swift */,
@@ -117,7 +122,7 @@
 			path = RecipeBook/Models;
 			sourceTree = "<group>";
 		};
-		2A0000000000000000000003 /* Services */ = {
+		2A0000000000000000000003 /* RecipeBook/Services */ = {
 			isa = PBXGroup;
 			children = (
 				3A0000000000000000000011 /* SessionStore.swift */,
@@ -137,7 +142,7 @@
 			path = RecipeBook/Services;
 			sourceTree = "<group>";
 		};
-		2A0000000000000000000004 /* Views */ = {
+		2A0000000000000000000004 /* RecipeBook/Views */ = {
 			isa = PBXGroup;
 			children = (
 				3A0000000000000000000018 /* LoginView.swift */,
@@ -147,19 +152,29 @@
 				3A000000000000000000000B /* RecipeDetailView.swift */,
 				3A000000000000000000000C /* PlanView.swift */,
 				3A000000000000000000000D /* CookModeView.swift */,
+				3A00000000000000000000E1 /* PrivacyPolicyView.swift */,
 				3A000000000000000000000E /* StatsView.swift */,
 				3A0000000000000000000021 /* CookTimerCenterView.swift */,
+				3A00000000000000000000A2 /* AchievementsView.swift */,
 			);
 			path = RecipeBook/Views;
 			sourceTree = "<group>";
 		};
-		2A0000000000000000000005 /* Resources */ = {
+		2A0000000000000000000005 /* RecipeBook/Resources */ = {
 			isa = PBXGroup;
 			children = (
 				3A0000000000000000000010 /* Assets.xcassets */,
 				3A000000000000000000000F /* Seed */,
 			);
 			path = RecipeBook/Resources;
+			sourceTree = "<group>";
+		};
+		39FE309030943DDA00B03DE3 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				3A000000000000000000001F /* RecipeBook/Resources/parse.js */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -202,6 +217,7 @@
 			developmentRegion = zh_CN;
 			hasScannedForEncodings = 0;
 			knownRegions = (
+				zh_CN,
 				en,
 				"zh-Hans",
 			);
@@ -221,7 +237,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4A0000000000000000000010 /* Assets.xcassets in Resources */,
-				4A0000000000000000000030 /* parse.js in Resources */,
+				4A0000000000000000000030 /* RecipeBook/Resources/parse.js in Resources */,
 				4A000000000000000000000F /* Seed in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -248,7 +264,9 @@
 				4A000000000000000000000B /* RecipeDetailView.swift in Sources */,
 				4A000000000000000000000C /* PlanView.swift in Sources */,
 				4A000000000000000000000D /* CookModeView.swift in Sources */,
+				4A00000000000000000000E1 /* PrivacyPolicyView.swift in Sources */,
 				4A000000000000000000000E /* StatsView.swift in Sources */,
+				4A00000000000000000000A1 /* AchievementsView.swift in Sources */,
 				4A0000000000000000000020 /* SessionStore.swift in Sources */,
 				4A0000000000000000000021 /* SiteClient.swift in Sources */,
 				4A0000000000000000000022 /* ScrapeService.swift in Sources */,
@@ -321,8 +339,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = K8A6K8QFXF;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = RecipeBook/Info.plist;
@@ -334,7 +352,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.cook.recipebook;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rongweiwei.myrecipes;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -349,8 +367,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = K8A6K8QFXF;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = RecipeBook/Info.plist;
@@ -362,7 +380,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.cook.recipebook;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rongweiwei.myrecipes;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
