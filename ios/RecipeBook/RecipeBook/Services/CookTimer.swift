@@ -69,7 +69,7 @@ struct TimerDraft: Identifiable {
 }
 
 /// 倒计时管理器。所有方法与 1s 心跳都跑在主线程。
-final class CookTimerManager: ObservableObject {
+final class CookTimerManager: NSObject, ObservableObject {
     @Published private(set) var timers: [CookTimer] = []
     /// 刚刚到点的那条，UI 拿到后弹提示
     @Published var lastFired: CookTimer?
@@ -85,10 +85,12 @@ final class CookTimerManager: ObservableObject {
             .appendingPathComponent("RecipeBook/timers.json")
     }
 
-    init() {
+    override init() {
+        super.init()
         load()
         reconcileAfterLaunch()
         refreshNotificationAuthorization()
+        synth.delegate = self
     }
 
     // MARK: - 增删改
@@ -282,9 +284,20 @@ final class CookTimerManager: ObservableObject {
         lastFired = timer
         AudioServicesPlaySystemSound(1005)                        // 短信音
         AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
+        // 朗读前把音频会话切到 playback：走媒体音量（而非铃声音量）、默认外放，
+        // 避免停留在语音搜索遗留的 playAndRecord 而路由到听筒导致播报音量偏小；
+        // duckOthers 让播报期间压低其它音频，结束后由 delegate 释放会话恢复。
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [.duckOthers])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            // 配置失败也不阻塞播报，按默认会话播
+        }
         let utterance = AVSpeechUtterance(string: "计时结束，\(timer.title)")
         utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        utterance.volume = 1.0
         synth.speak(utterance)
         notify(timer)
     }
@@ -373,5 +386,14 @@ final class CookTimerManager: ObservableObject {
               let data = try? Data(contentsOf: url),
               let list = try? JSONDecoder().decode([CookTimer].self, from: data) else { return }
         timers = list
+    }
+}
+
+// MARK: - 语音播报会话回收
+
+extension CookTimerManager: AVSpeechSynthesizerDelegate {
+    /// 播报结束后释放 playback 会话，让被 duck 的其它音频恢复，并避免长期占用音频路由。
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
