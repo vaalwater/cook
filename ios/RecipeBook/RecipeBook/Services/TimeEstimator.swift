@@ -139,9 +139,17 @@ enum TimeEstimator {
     }
 
     static func stepMinutes(_ step: RecipeStep) -> Double {
+        // 用户手动设置的建议定时最优先（弥补文本解析不准：如「大火收汁一会儿」实际要 8 分钟）
+        if step.suggestedSeconds > 0 { return Double(step.suggestedSeconds) / 60.0 }
         let text = step.text
         if hasExplicitTime(text) { return parseTimeToMinutes(text) }
         return estimateStepMinutes(text)
+    }
+
+    /// 倒计时弹窗的默认值：手动建议定时优先（秒→分钟，保留小数），否则按文本区间/估算。
+    static func suggestedMinutes(for step: RecipeStep) -> Double {
+        if step.suggestedSeconds > 0 { return Double(step.suggestedSeconds) / 60.0 }
+        return suggestedMinutes(for: step.text, fallback: stepMinutes(step))
     }
 
     // MARK: - 倒计时默认值

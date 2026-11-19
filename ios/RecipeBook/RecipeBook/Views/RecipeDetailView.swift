@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 enum RecipeDetailAction {
     case addToPlan
@@ -15,11 +16,21 @@ struct RecipeDetailView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.openPlanTab) private var openPlanTab
     @State private var showDeleteConfirm = false
+    /// 可编辑副本：编辑步骤后本地立即刷新；外部 store 变化时再同步回来
+    @State private var liveRecipe: Recipe
+    /// 正在编辑的步骤（非 nil 时弹出 StepEditorView）
+    @State private var editingStep: RecipeStep?
+
+    init(recipe: Recipe, onAction: @escaping (RecipeDetailAction) -> Void) {
+        self.recipe = recipe
+        self.onAction = onAction
+        _liveRecipe = State(initialValue: recipe)
+    }
 
     private var inPlan: Bool { store.plan.contains { $0.id == recipe.id } }
 
     private var totalMinutes: Double {
-        recipe.steps.reduce(0) { $0 + TimeEstimator.stepMinutes($1) }
+        liveRecipe.steps.reduce(0) { $0 + TimeEstimator.stepMinutes($1) }
     }
 
     var body: some View {
@@ -37,9 +48,23 @@ struct RecipeDetailView: View {
                 .padding(16)
             }
             .background(Color(.systemGroupedBackground))
-            .navigationTitle(recipe.displayTitle)
+            .navigationTitle(liveRecipe.displayTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
+            // store 里的菜谱被别处改动时同步回来（如开干页/列表页编辑）
+            .onChange(of: store.recipes) { _, recipes in
+                if let updated = recipes.first(where: { $0.id == recipe.id }) {
+                    liveRecipe = updated
+                }
+            }
+            .sheet(item: $editingStep) { step in
+                StepEditorView(recipe: liveRecipe, step: step) { text, imagePath, seconds in
+                    guard store.updateStep(recipeId: recipe.id, stepIndex: step.index,
+                                           text: text, image: imagePath, suggestedSeconds: seconds),
+                          let updated = store.recipes.first(where: { $0.id == recipe.id }) else { return }
+                    liveRecipe = updated
+                }
+            }
             .alert("确定删除这道菜谱？", isPresented: $showDeleteConfirm) {
                 Button("删除", role: .destructive) { onAction(.delete) }
                 Button("取消", role: .cancel) {}
@@ -53,26 +78,26 @@ struct RecipeDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if !recipe.coverImage.isEmpty {
-                AspectImage(path: recipe.coverImage, cornerRadius: 14)
+            if !liveRecipe.coverImage.isEmpty {
+                AspectImage(path: liveRecipe.coverImage, cornerRadius: 14)
             }
 
-            Text(recipe.displayTitle)
+            Text(liveRecipe.displayTitle)
                 .font(.title2.weight(.bold))
 
             FlowLayout(spacing: 6) {
                 // 作者名不展示：它既不是菜谱内容，混进搜索还会串味（作者叫「小土豆」→ 搜土豆命中南瓜饼）
-                if !recipe.servings.isEmpty { metaChip(recipe.servings) }
-                if !recipe.favCount.isEmpty { metaChip("\(recipe.favCount) 收藏") }
-                metaChip("抓取于 \(Format.dateTime(recipe.collectedAt))")
+                if !liveRecipe.servings.isEmpty { metaChip(liveRecipe.servings) }
+                if !liveRecipe.favCount.isEmpty { metaChip("\(liveRecipe.favCount) 收藏") }
+                metaChip("抓取于 \(Format.dateTime(liveRecipe.collectedAt))")
             }
         }
     }
 
     @ViewBuilder
     private var description: some View {
-        if !recipe.description.isEmpty {
-            Text(recipe.description)
+        if !liveRecipe.description.isEmpty {
+            Text(liveRecipe.description)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -80,9 +105,9 @@ struct RecipeDetailView: View {
 
     @ViewBuilder
     private var tagsView: some View {
-        if !recipe.tags.isEmpty {
+        if !liveRecipe.tags.isEmpty {
             FlowLayout(spacing: 6) {
-                ForEach(recipe.tags, id: \.self) { tag in
+                ForEach(liveRecipe.tags, id: \.self) { tag in
                     Text(tag)
                         .font(.caption)
                         .padding(.horizontal, 8)
@@ -95,23 +120,23 @@ struct RecipeDetailView: View {
 
     private var ingredientsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("用料（\(recipe.ingredients.count)）")
+            sectionTitle("用料（\(liveRecipe.ingredients.count)）")
 
-            if recipe.ingredients.isEmpty {
+            if liveRecipe.ingredients.isEmpty {
                 Text("未抓取到用料信息")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            } else if recipe.ingredientGroups.main.isEmpty && recipe.ingredientGroups.seasoning.isEmpty {
-                ingredientList(recipe.ingredients)
+            } else if liveRecipe.ingredientGroups.main.isEmpty && liveRecipe.ingredientGroups.seasoning.isEmpty {
+                ingredientList(liveRecipe.ingredients)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("🍖 主料（\(recipe.ingredientGroups.main.count)）")
+                    Text("🍖 主料（\(liveRecipe.ingredientGroups.main.count)）")
                         .font(.subheadline.weight(.semibold))
-                    ingredientList(recipe.ingredientGroups.main)
+                    ingredientList(liveRecipe.ingredientGroups.main)
 
-                    Text("🧂 辅料（\(recipe.ingredientGroups.seasoning.count)）")
+                    Text("🧂 辅料（\(liveRecipe.ingredientGroups.seasoning.count)）")
                         .font(.subheadline.weight(.semibold))
-                    ingredientList(recipe.ingredientGroups.seasoning)
+                    ingredientList(liveRecipe.ingredientGroups.seasoning)
                 }
             }
         }
@@ -155,14 +180,14 @@ struct RecipeDetailView: View {
 
     private var stepsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("做法（\(recipe.steps.count) 步）")
+            sectionTitle("做法（\(liveRecipe.steps.count) 步）")
 
-            if recipe.steps.isEmpty {
+            if liveRecipe.steps.isEmpty {
                 Text("未抓取到步骤信息")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(recipe.steps) { step in
+                ForEach(liveRecipe.steps) { step in
                     stepRow(step)
                 }
             }
@@ -179,11 +204,26 @@ struct RecipeDetailView: View {
                 .background(Circle().fill(Color.accentColor))
 
             VStack(alignment: .leading, spacing: 6) {
-                let minutes = TimeEstimator.stepMinutes(step)
-                if minutes > 0 {
-                    Text("⏱ \(TimeEstimator.format(minutes))")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                HStack(spacing: 8) {
+                    let minutes = TimeEstimator.stepMinutes(step)
+                    if minutes > 0 {
+                        Text("⏱ \(TimeEstimator.format(minutes))")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    if step.suggestedSeconds > 0 {
+                        Text("已手动设定")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        editingStep = step
+                    } label: {
+                        Label("编辑", systemImage: "square.and.pencil")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
                 }
                 if !step.text.isEmpty {
                     highlightedText(step.text)
@@ -199,10 +239,10 @@ struct RecipeDetailView: View {
 
     @ViewBuilder
     private var tipsSection: some View {
-        if !recipe.tips.isEmpty {
+        if !liveRecipe.tips.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 sectionTitle("小贴士")
-                Text(recipe.tips)
+                Text(liveRecipe.tips)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -275,6 +315,118 @@ struct RecipeDetailView: View {
                 }
             } label: {
                 Label("更多", systemImage: "ellipsis.circle")
+            }
+        }
+    }
+}
+
+/// 单步编辑器：文字 + 步骤图（相册选）+ 建议定时（分钟）。
+/// 图片在选中时立即压缩落沙盒拿到公开路径，点「保存」时把文字/图片/秒数一起提交给 store。
+struct StepEditorView: View {
+    let recipe: Recipe
+    let step: RecipeStep
+    let onSave: (String, String?, Int) -> Void
+
+    @EnvironmentObject private var store: RecipeStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var text: String
+    @State private var imagePath: String
+    @State private var minutes: Int
+    @State private var photoItem: PhotosPickerItem?
+    @State private var showPhotoError = false
+
+    init(recipe: Recipe, step: RecipeStep, onSave: @escaping (String, String?, Int) -> Void) {
+        self.recipe = recipe
+        self.step = step
+        self.onSave = onSave
+        _text = State(initialValue: step.text)
+        _imagePath = State(initialValue: step.image)
+        _minutes = State(initialValue: step.suggestedSeconds > 0 ? max(1, Int(round(Double(step.suggestedSeconds) / 60.0))) : 0)
+    }
+
+    private var hasTimer: Bool { minutes > 0 }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("步骤文字") {
+                    TextEditor(text: $text)
+                        .frame(minHeight: 110)
+                        .font(.subheadline)
+                }
+
+                Section("步骤图片") {
+                    if !imagePath.isEmpty {
+                        AspectImage(path: imagePath, cornerRadius: 10)
+                        Button("移除图片", role: .destructive) { imagePath = "" }
+                    }
+                    PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
+                        Label(imagePath.isEmpty ? "从相册添加图片" : "更换图片", systemImage: "photo")
+                    }
+                    .onChange(of: photoItem) { _, item in
+                        guard let item else { return }
+                        Task {
+                            guard let data = try? await item.loadTransferable(type: Data.self),
+                                  let uiImage = UIImage(data: data),
+                                  let path = ImageDownloader.savePickedStepImage(
+                                      uiImage, to: store.imageDir, recipeId: recipe.id, stepIndex: step.index
+                                  ) else {
+                                showPhotoError = true
+                                return
+                            }
+                            imagePath = path
+                        }
+                    }
+                }
+
+                Section("建议定时") {
+                    Toggle("为这一步设置建议定时", isOn: Binding(
+                        get: { hasTimer },
+                        set: { on in minutes = on ? max(1, minutes == 0 ? 10 : minutes) : 0 }
+                    ))
+                    if hasTimer {
+                        HStack {
+                            Text("\(minutes) 分钟")
+                                .font(.system(.title3, design: .default).monospacedDigit().weight(.semibold))
+                                .frame(minWidth: 90, alignment: .leading)
+                            Spacer()
+                            Stepper("", value: $minutes, in: 1...600, step: 1)
+                                .labelsHidden()
+                        }
+                        HStack(spacing: 8) {
+                            ForEach([1, 3, 5, 10, 20], id: \.self) { m in
+                                Button("+\(m)") { minutes = min(600, minutes + m) }
+                                    .font(.footnote.monospacedDigit())
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Capsule().fill(Color.orange.opacity(0.15)))
+                            }
+                        }
+                        Text("步骤文字里的时间有时解析不准，这里设定的时长会优先用于预计时间和倒计时默认值。")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("编辑第 \(step.index) 步")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        // 图片传 nil 表示不改；移除时要把空串传下去
+                        let image: String? = imagePath == step.image ? nil : imagePath
+                        onSave(trimmed, image, minutes * 60)
+                        dismiss()
+                    }
+                }
+            }
+            .alert("图片读取失败，请重试", isPresented: $showPhotoError) {
+                Button("好", role: .cancel) {}
             }
         }
     }

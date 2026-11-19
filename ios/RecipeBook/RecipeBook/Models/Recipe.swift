@@ -40,22 +40,27 @@ struct RecipeStep: Codable, Hashable, Identifiable {
     var index: Int
     var text: String
     var image: String
+    /// 手动设置的建议定时（秒）。0 表示未设置，仍按文本解析/估算。
+    var suggestedSeconds: Int
 
     var id: Int { index }
 
-    init(index: Int = 0, text: String = "", image: String = "") {
+    init(index: Int = 0, text: String = "", image: String = "", suggestedSeconds: Int = 0) {
         self.index = index
         self.text = text
         self.image = image
+        self.suggestedSeconds = max(0, suggestedSeconds)
     }
 
-    private enum CodingKeys: String, CodingKey { case index, text, image }
+    private enum CodingKeys: String, CodingKey { case index, text, image, suggestedSeconds }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.index = (try? c.decode(Int.self, forKey: .index)) ?? 0
         self.text = (try? c.decode(String.self, forKey: .text)) ?? ""
         self.image = (try? c.decode(String.self, forKey: .image)) ?? ""
+        // 老版本 JSON 没有这个字段，兜底为 0（继续用文本解析）
+        self.suggestedSeconds = max(0, (try? c.decode(Int.self, forKey: .suggestedSeconds)) ?? 0)
     }
 }
 

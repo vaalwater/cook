@@ -404,6 +404,20 @@ final class RecipeStore: ObservableObject {
         return true
     }
 
+    /// 更新单步内容（文字 / 步骤图 / 建议定时秒数）。传 image 为 nil 表示不动图片。
+    @discardableResult
+    func updateStep(recipeId: Int, stepIndex: Int, text: String, image: String?, suggestedSeconds: Int) -> Bool {
+        guard let ri = recipes.firstIndex(where: { $0.id == recipeId }),
+              let si = recipes[ri].steps.firstIndex(where: { $0.index == stepIndex }) else { return false }
+        recipes[ri].steps[si].text = text
+        if let image { recipes[ri].steps[si].image = image }
+        recipes[ri].steps[si].suggestedSeconds = max(0, suggestedSeconds)
+        // 步骤文字进了搜索索引，编辑后要重建
+        recipes[ri].searchIndex = TextIndex.buildIndex(for: recipes[ri])
+        // touchRecipe 会更新 updatedAt 并落盘（防止种子重导覆盖我们的编辑）
+        return touchRecipe(id: recipeId)
+    }
+
     /// 抓取写入：新菜谱插到最前，已存在的就地更新。
     ///
     /// **必须把 id 从 deletedIds 里摘掉**：以前删过的菜谱如果被重新抓回来，

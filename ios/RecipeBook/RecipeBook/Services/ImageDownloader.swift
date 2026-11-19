@@ -115,4 +115,15 @@ enum ImageDownloader {
         }
         return scaled.jpegData(compressionQuality: 0.88)
     }
+
+    /// 把用户从相册选的步骤图压缩后写入沙盒，返回形如 `/images/steps/{name}.jpg` 的公开路径。
+    /// 文件名带时间戳避免覆盖旧图（换图后旧文件留着不影响，清理可由备份/删除流程处理）。
+    static func savePickedStepImage(_ image: UIImage, to imageDir: URL, recipeId: Int, stepIndex: Int) -> String? {
+        let name = "\(recipeId)-\(stepIndex)-\(Int(Date().timeIntervalSince1970))"
+        let folder = imageDir.appendingPathComponent("steps", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent("\(name).jpg")
+        guard let data = downscale(image, maxEdge: 1000), (try? data.write(to: target)) != nil else { return nil }
+        return "/images/steps/\(name).jpg"
+    }
 }

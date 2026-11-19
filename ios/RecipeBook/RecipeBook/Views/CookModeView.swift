@@ -639,7 +639,7 @@ struct CookModeView: View {
 
     /// 卡片右下角的计时按钮：没有倒计时时弹出设置窗，已有则显示剩余时间（点开进总览）
     private func timerButton(lane: CookLane, step: ScheduledStep) -> some View {
-        let suggested = TimeEstimator.suggestedMinutes(for: step.step.text, fallback: step.minutes)
+        let suggested = TimeEstimator.suggestedMinutes(for: step.step)
         let existing = timers.timer(forRecipeId: lane.recipeId, stepIndex: step.step.index)
 
         return Button {
